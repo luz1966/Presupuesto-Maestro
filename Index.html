@@ -1,0 +1,2448 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plataforma de Presupuesto Maestro para Contratistas</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js for financial and variance visual analysis -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0f7ff',
+              100: '#e0effe',
+              500: '#0284c7',
+              600: '#0369a1',
+              700: '#075985',
+              800: '#0c4a6e',
+              900: '#082f49',
+            },
+            construction: {
+              amber: '#d97706',
+              dark: '#1e293b',
+              slate: '#334155',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .badge-favorable { background-color: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+    .badge-desfavorable { background-color: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+    .badge-neutral { background-color: #f8fafc; color: #475569; border: 1px solid #e2e8f0; }
+
+    /* Optimizaciones para presentación ejecutiva y exportación limpia a PDF */
+    @media print {
+      body {
+        background-color: #ffffff !important;
+        color: #0f172a !important;
+        font-size: 11px !important;
+      }
+      header, footer, .no-print, #modalPartida, #modalNuevoGiro, #modalReportePreview, #toastNotification {
+        display: none !important;
+      }
+      #printAreaContainer {
+        display: block !important;
+        width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      .page-break {
+        page-break-before: always;
+      }
+      .avoid-break {
+        page-break-inside: avoid;
+      }
+      table {
+        page-break-inside: auto;
+      }
+      tr {
+        page-break-inside: avoid;
+        page-break-after: auto;
+      }
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+    }
+  </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col">
+<div id="authScreen" class="fixed inset-0 z-[100] bg-slate-900 flex items-center justify-center p-4 no-print">
+  <div class="w-full max-w-sm bg-slate-800 border border-slate-700 rounded-2xl p-7 shadow-2xl">
+    <div class="flex items-center space-x-3 mb-6">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-amber-500 flex items-center justify-center text-white"><i data-lucide="hard-hat" class="w-6 h-6"></i></div>
+      <div><p class="font-bold text-white">MasterBuild FinOps</p><p class="text-xs text-slate-400">Presupuesto Maestro · Acceso personal</p></div>
+    </div>
+    <form onsubmit="doLogin(event)" class="space-y-3">
+      <input id="lgEmail" type="email" required autocomplete="username" placeholder="Correo electrónico" class="w-full bg-slate-900 border border-slate-700 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-sky-500 outline-none">
+      <input id="lgPass" type="password" required autocomplete="current-password" placeholder="Contraseña" class="w-full bg-slate-900 border border-slate-700 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:ring-2 focus:ring-sky-500 outline-none">
+      <p id="lgErr" class="text-xs text-amber-400 min-h-[1rem]"></p>
+      <button class="w-full bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold rounded-lg py-2.5 transition">Iniciar sesión</button>
+    </form>
+    <button onclick="doForgot()" class="mt-4 text-xs text-sky-400 hover:text-sky-300">¿Olvidaste tu contraseña?</button>
+    <p class="text-[11px] text-slate-500 mt-4">El acceso es solo por invitación.</p>
+  </div>
+</div>
+<div id="pwModal" class="hidden fixed inset-0 z-[110] bg-slate-900/80 flex items-center justify-center p-4 no-print">
+  <form onsubmit="doPw(event)" class="w-full max-w-sm bg-slate-800 border border-slate-700 rounded-2xl p-7 shadow-2xl space-y-3">
+    <p class="font-bold text-white">Cambiar contraseña</p>
+    <input id="pw1" type="password" minlength="8" required autocomplete="new-password" placeholder="Nueva contraseña (mín. 8 caracteres)" class="w-full bg-slate-900 border border-slate-700 text-slate-100 text-sm rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-sky-500">
+    <input id="pw2" type="password" minlength="8" required autocomplete="new-password" placeholder="Repite la contraseña" class="w-full bg-slate-900 border border-slate-700 text-slate-100 text-sm rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-sky-500">
+    <p id="pwErr" class="text-xs text-amber-400 min-h-[1rem]"></p>
+    <div class="flex justify-end space-x-2">
+      <button type="button" onclick="byId('pwModal').classList.add('hidden')" class="text-sm text-slate-400 hover:text-white px-3">Cancelar</button>
+      <button class="bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold rounded-lg px-4 py-2">Guardar</button>
+    </div>
+  </form>
+</div>
+<div id="userBar" class="hidden no-print fixed bottom-3 left-3 z-50 bg-slate-900/95 text-slate-300 text-[11px] border border-slate-700 rounded-full px-4 py-1.5 shadow-lg flex items-center space-x-3">
+  <span id="userEmail"></span><span id="saveState" class="text-emerald-400"></span>
+  <button onclick="byId('pwModal').classList.remove('hidden')" class="hover:text-white underline">Contraseña</button>
+  <button onclick="doLogout()" class="hover:text-white underline">Salir</button>
+</div>
+
+
+  <!-- Top Executive Header -->
+  <header class="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40 shadow-md">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        
+        <!-- Brand & Logo -->
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-amber-500 flex items-center justify-center text-white font-black text-xl shadow-lg">
+            <i data-lucide="hard-hat" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="font-bold text-lg tracking-tight text-white">MasterBuild FinOps</span>
+              <span class="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30">Presupuesto Maestro</span>
+            </div>
+            <p class="text-xs text-slate-400">Control Operativo y Financiero para Contratistas</p>
+          </div>
+        </div>
+
+        <!-- Specialty & Project Switcher -->
+        <div class="hidden md:flex items-center space-x-3">
+          <div class="flex flex-col text-right">
+            <div class="flex items-center justify-end space-x-2">
+              <label class="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Especialidad Contratista</label>
+              <button onclick="openModalNuevoGiro()" class="text-[11px] text-sky-400 hover:text-sky-300 font-bold flex items-center space-x-0.5">
+                <i data-lucide="plus" class="w-3 h-3"></i>
+                <span>Nuevo Giro</span>
+              </button>
+            </div>
+            <select id="specialtySelect" onchange="handleSpecialtyChange(this.value)" class="bg-slate-800 border border-slate-700 text-slate-100 text-sm rounded-lg px-3 py-1 focus:ring-2 focus:ring-sky-500 outline-none cursor-pointer">
+              <option value="edificacion">🏢 Edificación y Estructura</option>
+              <option value="urbanizacion">🚜 Urbanización y Mov. Tierras</option>
+              <option value="electricidad">⚡ Instalaciones Eléctricas / MEP</option>
+              <option value="ventaneria">🪟 Ventanería, Fachadas y Cancelería</option>
+              <option value="acabados">🎨 Acabados y Recubrimientos</option>
+              <option value="domotica">🏠 Domótica y Casas Inteligentes</option>
+            </select>
+          </div>
+
+          <div class="flex flex-col text-right">
+            <label class="text-[11px] text-slate-400 font-medium uppercase tracking-wider">Moneda y Periodo</label>
+            <div class="flex items-center space-x-1.5">
+              <select id="currencySelect" onchange="handleCurrencyChange(this.value)" class="bg-slate-800 border border-slate-700 text-slate-100 text-xs rounded-lg px-2.5 py-1 focus:ring-2 focus:ring-sky-500 outline-none cursor-pointer font-medium hover:border-slate-600 transition" title="Seleccionar moneda de trabajo">
+                <option value="MXN" selected>MXN ($)</option>
+                <option value="USD">USD ($)</option>
+                <option value="EUR">EUR (€)</option>
+                <option value="COP">COP ($)</option>
+                <option value="PEN">PEN (S/)</option>
+                <option value="CLP">CLP ($)</option>
+              </select>
+              <div class="flex items-center bg-slate-800 border border-slate-700 rounded-lg px-2 py-0.5 focus-within:ring-2 focus-within:ring-sky-500 hover:border-slate-600 transition" title="Editar año fiscal del ejercicio">
+                <span class="text-[10px] text-slate-400 mr-1 font-semibold uppercase">Año:</span>
+                <input type="number" id="yearInput" value="2026" min="2000" max="2099" onchange="handleYearChange(this.value)" class="w-14 bg-transparent text-slate-100 text-xs font-bold focus:outline-none text-right font-mono">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Tools -->
+        <div class="flex items-center space-x-2">
+          <button onclick="openModalNuevaPartida()" class="flex items-center space-x-1 bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold py-2 px-3 rounded-lg shadow-sm transition">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+            <span class="hidden sm:inline">Capturar Partida</span>
+          </button>
+          
+          <!-- Dropdown para compartir y exportar con formato corporativo -->
+          <div class="relative inline-block text-left">
+            <button onclick="toggleShareDropdown()" id="btnShareMenu" class="flex items-center space-x-1 bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold py-2 px-3 rounded-lg shadow-sm transition">
+              <i data-lucide="printer" class="w-4 h-4"></i>
+              <span>Compartir / Reporte</span>
+              <i data-lucide="chevron-down" class="w-3 h-3"></i>
+            </button>
+            <div id="shareDropdown" class="hidden absolute right-0 mt-2 w-56 rounded-xl shadow-xl bg-white ring-1 ring-black ring-opacity-5 z-50 text-slate-700 py-1.5 border border-slate-200">
+              <button onclick="previewExecutiveReport()" class="w-full text-left px-4 py-2.5 text-xs hover:bg-slate-50 flex items-center space-x-2.5">
+                <i data-lucide="file-text" class="w-4 h-4 text-sky-600"></i>
+                <div>
+                  <span class="font-semibold block text-slate-800">Dossier Ejecutivo (PDF)</span>
+                  <span class="text-[10px] text-slate-400">Vista formal lista para imprimir/guardar</span>
+                </div>
+              </button>
+              <button onclick="exportToStyledExcel()" class="w-full text-left px-4 py-2.5 text-xs hover:bg-slate-50 flex items-center space-x-2.5 border-t border-slate-100">
+                <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-600"></i>
+                <div>
+                  <span class="font-semibold block text-slate-800">Excel Formateado (.XLS)</span>
+                  <span class="text-[10px] text-slate-400">Conserva colores, negritas y celdas $</span>
+                </div>
+              </button>
+              <button onclick="exportToCSV()" class="w-full text-left px-4 py-2 text-xs hover:bg-slate-50 flex items-center space-x-2.5 border-t border-slate-100 text-slate-500">
+                <i data-lucide="download" class="w-4 h-4 text-slate-400"></i>
+                <span>Exportar CSV Plano</span>
+              </button>
+            </div>
+          </div>
+
+          <button onclick="resetDataDemo()" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition" title="Restaurar plantilla del giro">
+            <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="bg-slate-900/90 border-t border-slate-800">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-6 overflow-x-auto text-sm">
+        <button onclick="changeTab('dashboard')" id="tab-dashboard" class="tab-btn py-3 border-b-2 font-medium flex items-center space-x-2 text-sky-400 border-sky-500 whitespace-nowrap">
+          <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
+          <span>Dashboard y Variaciones</span>
+        </button>
+        <button onclick="changeTab('operativo')" id="tab-operativo" class="tab-btn py-3 border-b-2 font-medium flex items-center space-x-2 text-slate-400 border-transparent hover:text-slate-200 whitespace-nowrap">
+          <i data-lucide="calculator" class="w-4 h-4"></i>
+          <span>Presupuesto Operativo</span>
+        </button>
+        <button onclick="changeTab('resultados')" id="tab-resultados" class="tab-btn py-3 border-b-2 font-medium flex items-center space-x-2 text-slate-400 border-transparent hover:text-slate-200 whitespace-nowrap">
+          <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+          <span>Estado de Resultados (P&L)</span>
+        </button>
+        <button onclick="changeTab('financiero')" id="tab-financiero" class="tab-btn py-3 border-b-2 font-medium flex items-center space-x-2 text-slate-400 border-transparent hover:text-slate-200 whitespace-nowrap">
+          <i data-lucide="banknote" class="w-4 h-4"></i>
+          <span>Presupuesto Financiero (Flujo Caja)</span>
+        </button>
+        <button onclick="changeTab('simulador')" id="tab-simulador" class="tab-btn py-3 border-b-2 font-medium flex items-center space-x-2 text-slate-400 border-transparent hover:text-slate-200 whitespace-nowrap">
+          <i data-lucide="sliders" class="w-4 h-4"></i>
+          <span>Sensibilidad y Escenarios</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Area -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+    <!-- Executive KPI Scorecards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      
+      <!-- Card 1: Ingresos de Estimaciones -->
+      <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm relative overflow-hidden">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Ingresos (Estimaciones)</span>
+          <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+            <i data-lucide="trending-up" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="text-2xl font-bold text-slate-900" id="kpiIngresosReal">$0</div>
+        <div class="flex items-center justify-between mt-2 text-xs">
+          <span class="text-slate-500">Ppto: <b id="kpiIngresosPpto" class="text-slate-700">$0</b></span>
+          <span id="kpiIngresosVar" class="px-2 py-0.5 rounded font-semibold text-emerald-700 bg-emerald-50">0.0%</span>
+        </div>
+        <div class="w-full bg-slate-100 rounded-full h-1.5 mt-3">
+          <div id="kpiIngresosProgress" class="bg-blue-600 h-1.5 rounded-full" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <!-- Card 2: Costo Directo de Obra -->
+      <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm relative overflow-hidden">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Costo Directo Ejecutado</span>
+          <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+            <i data-lucide="hammer" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="text-2xl font-bold text-slate-900" id="kpiCostoReal">$0</div>
+        <div class="flex items-center justify-between mt-2 text-xs">
+          <span class="text-slate-500">Ppto: <b id="kpiCostoPpto" class="text-slate-700">$0</b></span>
+          <span id="kpiCostoVar" class="px-2 py-0.5 rounded font-semibold text-rose-700 bg-rose-50">0.0%</span>
+        </div>
+        <div class="w-full bg-slate-100 rounded-full h-1.5 mt-3">
+          <div id="kpiCostoProgress" class="bg-amber-600 h-1.5 rounded-full" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <!-- Card 3: Utilidad Bruta Operativa -->
+      <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm relative overflow-hidden">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Margen Bruto Operativo</span>
+          <div class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <i data-lucide="pie-chart" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="text-2xl font-bold text-slate-900" id="kpiUtilidadReal">$0</div>
+        <div class="flex items-center justify-between mt-2 text-xs">
+          <span class="text-slate-500">Margen Real: <b id="kpiMargenRealPct" class="text-slate-700">0%</b></span>
+          <span class="text-slate-400">Ppto: <span id="kpiMargenPptoPct">0%</span></span>
+        </div>
+        <div class="w-full bg-slate-100 rounded-full h-1.5 mt-3">
+          <div id="kpiUtilidadProgress" class="bg-emerald-500 h-1.5 rounded-full" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <!-- Card 4: Posición de Tesorería / Caja -->
+      <div class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm relative overflow-hidden">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Saldo de Tesorería Cierre</span>
+          <div class="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+            <i data-lucide="wallet" class="w-4 h-4"></i>
+          </div>
+        </div>
+        <div class="text-2xl font-bold text-slate-900" id="kpiSaldoCaja">$0</div>
+        <div class="flex items-center justify-between mt-2 text-xs">
+          <span class="text-slate-500">Fondo Garantía Retenido:</span>
+          <span id="kpiFondoGarantia" class="font-semibold text-purple-700">$0</span>
+        </div>
+        <div class="mt-3 flex items-center space-x-1 text-[11px] text-slate-500">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+          <span id="kpiLiquidezMsg">Liquidez suficiente</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TAB 1: DASHBOARD & VARIANCE ANALYSIS -->
+    <div id="view-dashboard" class="space-y-6">
+      
+      <!-- Charts Row 1 -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Chart: Comparativa Mensual Ingresos vs Costos (Real vs Ppto) -->
+        <div class="lg:col-span-2 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
+            <div>
+              <h3 class="text-base font-bold text-slate-800 flex items-center space-x-2">
+                <i data-lucide="bar-chart-3" class="w-5 h-5 text-sky-600"></i>
+                <span>Comportamiento Temporal: Presupuesto vs Real</span>
+              </h3>
+              <p class="text-xs text-slate-500">Evolución mensual de estimaciones facturadas vs costo total incurrido</p>
+            </div>
+            <div class="flex items-center space-x-2 text-xs">
+              <span class="inline-flex items-center"><span class="w-3 h-3 bg-sky-500 rounded-sm mr-1"></span> Ingreso Ppto</span>
+              <span class="inline-flex items-center"><span class="w-3 h-3 bg-sky-800 rounded-sm mr-1"></span> Ingreso Real</span>
+              <span class="inline-flex items-center"><span class="w-3 h-3 bg-amber-500 rounded-sm mr-1"></span> Costo Real</span>
+            </div>
+          </div>
+          <div class="relative h-72">
+            <canvas id="chartMensual"></canvas>
+          </div>
+        </div>
+
+        <!-- Chart: Desglose de Costos Directos e Indirectos -->
+        <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+          <div class="mb-4">
+            <h3 class="text-base font-bold text-slate-800 flex items-center space-x-2">
+              <i data-lucide="pie-chart" class="w-5 h-5 text-amber-600"></i>
+              <span>Distribución del Costo</span>
+            </h3>
+            <p class="text-xs text-slate-500">Concentración por insumo principal de obra</p>
+          </div>
+          <div class="relative h-56 flex items-center justify-center">
+            <canvas id="chartCategorias"></canvas>
+          </div>
+          <div id="costDistributionLegend" class="mt-4 grid grid-cols-2 gap-2 text-xs">
+            <!-- Dynamic elements loaded via JS -->
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Variance Matrix / Tabla Ejecutiva de Variaciones -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50/50">
+          <div>
+            <h3 class="text-base font-bold text-slate-800 flex items-center space-x-2">
+              <i data-lucide="scale" class="w-5 h-5 text-emerald-600"></i>
+              <span>Matriz de Desviaciones (Real vs. Presupuestado)</span>
+            </h3>
+            <p class="text-xs text-slate-500">Semaforización automática: Verde (Ahorro/Superávit), Amarillo (&plusmn;5%), Rojo (Sobrecosto Crítico)</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="text-xs px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-medium">Favorable</span>
+            <span class="text-xs px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 font-medium">Alerta (&plusmn;5%)</span>
+            <span class="text-xs px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 font-medium">Desfavorable (&gt;5%)</span>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto custom-scrollbar">
+          <table class="w-full text-left border-collapse text-sm">
+            <thead>
+              <tr class="bg-slate-100 text-slate-600 text-xs uppercase tracking-wider border-b border-slate-200">
+                <th class="py-3 px-4 font-semibold">Categoría / Rubro</th>
+                <th class="py-3 px-4 font-semibold">Tipo</th>
+                <th class="py-3 px-4 font-semibold text-right">Presupuesto Maestro</th>
+                <th class="py-3 px-4 font-semibold text-right">Ejecutado Real</th>
+                <th class="py-3 px-4 font-semibold text-right">Variación ($)</th>
+                <th class="py-3 px-4 font-semibold text-center">Variación (%)</th>
+                <th class="py-3 px-4 font-semibold text-center">Estado</th>
+              </tr>
+            </thead>
+            <tbody id="varianceTableBody" class="divide-y divide-slate-200">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TAB 2: PRESUPUESTO OPERATIVO -->
+    <div id="view-operativo" class="hidden space-y-6">
+      
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900 flex items-center space-x-2">
+            <i data-lucide="clipboard-list" class="w-5 h-5 text-sky-600"></i>
+            <span>Presupuesto Operativo por Partidas de Obra</span>
+          </h2>
+          <p class="text-xs text-slate-500">Estimación de ingresos, costos directos (materiales, destajos, maquinaria, subcontratos) e indirectos.</p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button onclick="openModalNuevaPartida()" class="px-3 py-2 bg-sky-600 text-white rounded-lg text-xs font-semibold hover:bg-sky-500 transition flex items-center space-x-1 shadow-sm">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>Agregar Partida</span>
+          </button>
+          <select id="filtroTipoPartida" onchange="renderTablasOperativo()" class="border border-slate-300 rounded-lg px-3 py-2 text-xs bg-white text-slate-700 outline-none">
+            <option value="todos">Ver Todas las Partidas</option>
+            <option value="Ingreso">Solo Ingresos / Estimaciones</option>
+            <option value="Materiales">Materiales e Insumos</option>
+            <option value="Mano de Obra">Mano de Obra / Destajos</option>
+            <option value="Maquinaria">Maquinaria y Equipo</option>
+            <option value="Subcontratos">Subcontratos Especializados</option>
+            <option value="Indirectos">Costos Indirectos de Obra</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Grid de edición rápida y cálculo interactivo -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto custom-scrollbar">
+          <table class="w-full text-left border-collapse text-sm">
+            <thead>
+              <tr class="bg-slate-800 text-white text-xs uppercase tracking-wider">
+                <th class="py-3 px-4 font-medium">Cód / Partida</th>
+                <th class="py-3 px-4 font-medium">Descripción y Unidad</th>
+                <th class="py-3 px-4 font-medium">Clasificación</th>
+                <th class="py-3 px-4 font-medium text-right">Cant. Ppto</th>
+                <th class="py-3 px-4 font-medium text-right">P.U. Ppto</th>
+                <th class="py-3 px-4 font-medium text-right bg-slate-700/80">Total Ppto</th>
+                <th class="py-3 px-4 font-medium text-right">Cant. Real</th>
+                <th class="py-3 px-4 font-medium text-right">P.U. Real</th>
+                <th class="py-3 px-4 font-medium text-right bg-sky-950">Total Real</th>
+                <th class="py-3 px-4 font-medium text-right">Desviación ($)</th>
+                <th class="py-3 px-4 font-medium text-center">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="operativoTableBody" class="divide-y divide-slate-200 text-xs">
+              <!-- Dynamically generated rows -->
+            </tbody>
+            <tfoot id="operativoTableFoot" class="bg-slate-100 font-semibold text-slate-800 text-xs">
+              <!-- Totals populated via JS -->
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- Guía Metodológica para el Contratista -->
+      <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start space-x-3">
+        <i data-lucide="info" class="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0"></i>
+        <div class="text-xs text-blue-900 leading-relaxed">
+          <strong class="font-semibold text-blue-950">Recomendación para Contratistas de Especialidad:</strong>
+          En construcción, una variación desfavorable en cantidad refleja merma, desperdicio o reproceso (eficiencia en campo). Una variación en precio refleja incremento de mercado o mala negociación de insumos. Este tablero separa automáticamente el impacto para corregir a tiempo antes del siguiente corte de estimación.
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TAB 3: ESTADO DE RESULTADOS (P&L INTEGRAL DE OBRA) -->
+    <div id="view-resultados" class="hidden space-y-6">
+      
+      <!-- Encabezado y Parámetros del P&L -->
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900 flex items-center space-x-2">
+            <i data-lucide="file-spreadsheet" class="w-5 h-5 text-emerald-600"></i>
+            <span>Estado de Resultados Proyectado vs. Real (Edo. de Pérdidas y Ganancias)</span>
+          </h2>
+          <p class="text-xs text-slate-500">
+            Mide la rentabilidad económica devengada de la obra independientemente de las fechas de cobro y pago de caja.
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3 text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-slate-500">Gastos Adm. Central (%)</label>
+            <input type="number" id="pnlGastoAdmPct" value="4.0" step="0.5" onchange="renderEstadoResultados()" class="w-20 border border-slate-300 rounded px-2 py-1 font-mono text-right text-xs">
+          </div>
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-slate-500">Costo Financiero (%)</label>
+            <input type="number" id="pnlCostoFinPct" value="1.5" step="0.1" onchange="renderEstadoResultados()" class="w-20 border border-slate-300 rounded px-2 py-1 font-mono text-right text-xs">
+          </div>
+          <div>
+            <label class="block text-[10px] uppercase font-bold text-slate-500">Tasa ISR / PTU (%)</label>
+            <input type="number" id="pnlIsrPct" value="30.0" step="1" onchange="renderEstadoResultados()" class="w-20 border border-slate-300 rounded px-2 py-1 font-mono text-right text-xs">
+          </div>
+        </div>
+      </div>
+
+      <!-- Tarjetas Resumen de Márgenes -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <span class="text-xs text-slate-500 font-semibold uppercase">Utilidad Bruta de Obra</span>
+          <div class="text-2xl font-bold text-slate-900 mt-1" id="pnlCardBruta">$0</div>
+          <div class="flex justify-between items-center text-xs mt-2 text-slate-500">
+            <span>Margen Real: <b id="pnlCardBrutaPct" class="text-emerald-700">0%</b></span>
+            <span>Ppto: <span id="pnlCardBrutaPptoPct">0%</span></span>
+          </div>
+        </div>
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <span class="text-xs text-slate-500 font-semibold uppercase">EBITDA Operativo de Contrato</span>
+          <div class="text-2xl font-bold text-sky-700 mt-1" id="pnlCardEbitda">$0</div>
+          <div class="flex justify-between items-center text-xs mt-2 text-slate-500">
+            <span>Margen EBITDA: <b id="pnlCardEbitdaPct" class="text-sky-700">0%</b></span>
+            <span id="pnlCardEbitdaDiff" class="text-xs font-semibold">0%</span>
+          </div>
+        </div>
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <span class="text-xs text-slate-500 font-semibold uppercase">Utilidad Neta Final (Después de Impuestos)</span>
+          <div class="text-2xl font-bold text-purple-700 mt-1" id="pnlCardNeta">$0</div>
+          <div class="flex justify-between items-center text-xs mt-2 text-slate-500">
+            <span>Margen Neto: <b id="pnlCardNetaPct" class="text-purple-700">0%</b></span>
+            <span>Retorno Líquido</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabla Detallada del Estado de Resultados -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto custom-scrollbar">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="bg-slate-800 text-white text-[11px] uppercase tracking-wider">
+                <th class="py-3 px-4 font-semibold">Renglón Contable / Estructura P&L</th>
+                <th class="py-3 px-4 text-right font-semibold">Ppto. Maestro</th>
+                <th class="py-3 px-4 text-right font-semibold">% Ppto</th>
+                <th class="py-3 px-4 text-right font-semibold bg-slate-900">Real Incurrido</th>
+                <th class="py-3 px-4 text-right font-semibold bg-slate-900">% Real</th>
+                <th class="py-3 px-4 text-right font-semibold">Variación ($)</th>
+                <th class="py-3 px-4 text-center font-semibold">Variación (%)</th>
+                <th class="py-3 px-4 text-center font-semibold">Semáforo</th>
+              </tr>
+            </thead>
+            <tbody id="pnlTableBody" class="divide-y divide-slate-200">
+              <!-- Dynamically populated via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Gráfico Comparativo de Cascada P&L -->
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-sm font-bold text-slate-800 flex items-center space-x-2">
+              <i data-lucide="bar-chart-2" class="w-4 h-4 text-emerald-600"></i>
+              <span>Análisis Gráfico: Pérdidas y Ganancias (Presupuesto vs. Real)</span>
+            </h3>
+            <p class="text-xs text-slate-500">Comparación de ingresos devengados, costos directos, indirectos y utilidades netas</p>
+          </div>
+        </div>
+        <div class="relative h-64">
+          <canvas id="chartPnl"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TAB 4: PRESUPUESTO FINANCIERO (FLUJO DE CAJA DE OBRA) -->
+    <div id="view-financiero" class="hidden space-y-6">
+      
+      <!-- Controles y Parámetros Financieros -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Saldo Inicial de Caja ($)</label>
+          <input type="number" id="finSaldoInicial" value="350000" onchange="updateFinancialCalculations()" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-sky-500 outline-none">
+          <span class="text-[10px] text-slate-400">Fondo disponible para arranque</span>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Amortización Anticipo (%)</label>
+          <input type="number" id="finPctAmortizacion" value="30" onchange="updateFinancialCalculations()" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-sky-500 outline-none">
+          <span class="text-[10px] text-slate-400">Deducción de anticipo en estimaciones</span>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Fondo de Garantía / Vicios Ocultos (%)</label>
+          <input type="number" id="finPctFondoGarantia" value="5" onchange="updateFinancialCalculations()" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-sky-500 outline-none">
+          <span class="text-[10px] text-slate-400">Retención de cliente hasta finiquito</span>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Plazo Cobranza Promedio</label>
+          <select id="finPlazoCobro" onchange="updateFinancialCalculations()" class="w-full text-sm border border-slate-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-sky-500 outline-none">
+            <option value="15">15 Días (Quincenal)</option>
+            <option value="30" selected>30 Días (Mensual estándar)</option>
+            <option value="45">45 Días (Retraso típico)</option>
+            <option value="60">60 Días (Crítico)</option>
+          </select>
+          <span class="text-[10px] text-slate-400">Tiempo entre firma y cobro líquido</span>
+        </div>
+      </div>
+
+      <!-- Flujo de Efectivo Proyectado vs Real Mes a Mes -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="p-4 border-b border-slate-200 flex flex-col sm:flex-row justify-between sm:items-center bg-slate-50 gap-2">
+          <div>
+            <h3 class="text-base font-bold text-slate-800 flex items-center space-x-2">
+              <i data-lucide="arrow-left-right" class="w-5 h-5 text-purple-600"></i>
+              <span>Estado de Flujo de Tesorería Proyectado vs. Real</span>
+            </h3>
+            <p class="text-xs text-slate-500">Ingresos netos cobrados menos pagos a proveedores, destajistas y costos fijos</p>
+          </div>
+          <div class="text-xs bg-purple-100 text-purple-800 px-3 py-1 rounded-full font-medium">
+            Proyección Bimestral / Semestral de Obra
+          </div>
+        </div>
+
+        <div class="overflow-x-auto custom-scrollbar">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="bg-slate-100 text-slate-700 font-semibold border-b border-slate-300 text-[11px]">
+                <th class="py-3 px-4 uppercase sticky left-0 bg-slate-100 min-w-[200px]">Concepto de Tesorería</th>
+                <th class="py-3 px-3 text-right">Mes 1</th>
+                <th class="py-3 px-3 text-right">Mes 2</th>
+                <th class="py-3 px-3 text-right">Mes 3</th>
+                <th class="py-3 px-3 text-right">Mes 4</th>
+                <th class="py-3 px-3 text-right">Mes 5</th>
+                <th class="py-3 px-3 text-right">Mes 6</th>
+                <th class="py-3 px-4 text-right bg-slate-200 font-bold">Acumulado</th>
+              </tr>
+            </thead>
+            <tbody id="cashFlowTableBody" class="divide-y divide-slate-200">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Gráfica de Liquidez / Saldo acumulado en el tiempo -->
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+        <h3 class="text-sm font-bold text-slate-800 mb-1 flex items-center space-x-2">
+          <i data-lucide="line-chart" class="w-4 h-4 text-purple-600"></i>
+          <span>Curva de Tesorería y Punto de Quiebre de Liquidez (Cash Flow Curve)</span>
+        </h3>
+        <p class="text-xs text-slate-500 mb-4">Muestra si en algún mes la empresa cae en saldo negativo requiriendo línea de crédito o financiamiento puente.</p>
+        <div class="relative h-64">
+          <canvas id="chartCashFlow"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TAB 4: SENSIBILIDAD Y ESCENARIOS -->
+    <div id="view-simulador" class="hidden space-y-6">
+      
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+        <div class="max-w-3xl">
+          <h2 class="text-lg font-bold text-slate-900 flex items-center space-x-2">
+            <i data-lucide="sliders" class="w-5 h-5 text-amber-600"></i>
+            <span>Simulador de Estrés Financiero y Contingencias de Obra</span>
+          </h2>
+          <p class="text-xs text-slate-500 mt-1">
+            Permite proyectar el impacto de la inflación de materiales clave (acero, cemento, cancelería, cable de cobre) o la demora en el pago de estimaciones del cliente principal sobre la rentabilidad final.
+          </p>
+        </div>
+
+        <!-- Sliders -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-semibold text-slate-700">Inflación en Materiales:</label>
+              <span id="simMaterialesVal" class="text-xs font-bold text-amber-700">+0%</span>
+            </div>
+            <input type="range" id="simMateriales" min="0" max="30" value="0" step="1" oninput="runSimulation()" class="w-full accent-amber-600 cursor-pointer">
+            <span class="text-[10px] text-slate-400">Impacto directo sobre partidas de suministros</span>
+          </div>
+
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-semibold text-slate-700">Sobrecosto en Mano de Obra:</label>
+              <span id="simManoObraVal" class="text-xs font-bold text-rose-700">+0%</span>
+            </div>
+            <input type="range" id="simManoObra" min="0" max="30" value="0" step="1" oninput="runSimulation()" class="w-full accent-rose-600 cursor-pointer">
+            <span class="text-[10px] text-slate-400">Horas extra, rendimientos menores o clima</span>
+          </div>
+
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-semibold text-slate-700">Días Adicionales Pago Estimación:</label>
+              <span id="simDemoraVal" class="text-xs font-bold text-purple-700">0 Días</span>
+            </div>
+            <input type="range" id="simDemora" min="0" max="60" value="0" step="5" oninput="runSimulation()" class="w-full accent-purple-600 cursor-pointer">
+            <span class="text-[10px] text-slate-400">Demora burocrática en revisión de firmas</span>
+          </div>
+        </div>
+
+        <!-- Resultados de la simulación -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
+          <div class="p-4 rounded-xl border border-slate-200 bg-white">
+            <span class="text-xs text-slate-500 block uppercase font-medium">Margen Original vs Simulado</span>
+            <div class="flex items-baseline space-x-2 mt-1">
+              <span id="simMargenOriginal" class="text-lg font-semibold text-slate-600">0%</span>
+              <i data-lucide="arrow-right" class="w-4 h-4 text-slate-400"></i>
+              <span id="simMargenNuevo" class="text-2xl font-bold text-slate-900">0%</span>
+            </div>
+            <span id="simMargenDelta" class="text-xs font-semibold text-emerald-600 mt-1 block">Variación: 0.0%</span>
+          </div>
+
+          <div class="p-4 rounded-xl border border-slate-200 bg-white">
+            <span class="text-xs text-slate-500 block uppercase font-medium">Costo Adicional Estimado</span>
+            <div class="text-2xl font-bold text-rose-600 mt-1" id="simCostoExtra">$0</div>
+            <span class="text-xs text-slate-500 mt-1 block">Impacto acumulado en el presupuesto</span>
+          </div>
+
+          <div class="p-4 rounded-xl border border-slate-200 bg-white">
+            <span class="text-xs text-slate-500 block uppercase font-medium">Capital de Trabajo Extra Requerido</span>
+            <div class="text-2xl font-bold text-amber-600 mt-1" id="simCapitalRequerido">$0</div>
+            <span class="text-xs text-slate-500 mt-1 block">Línea de crédito para soportar desfase</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Estrategias de Mitigación Contractual -->
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+        <h3 class="text-sm font-bold text-slate-800 mb-3 flex items-center space-x-2">
+          <i data-lucide="shield-check" class="w-4 h-4 text-emerald-600"></i>
+          <span>Checklist Financiero de Protección para Contratistas</span>
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-600">
+          <label class="flex items-start space-x-2 p-2.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 cursor-pointer">
+            <input type="checkbox" checked class="mt-0.5 rounded text-sky-600 focus:ring-0">
+            <span><strong>Cláusula de Escalatoria:</strong> Pactar ajuste por incremento en precios de acero o cemento superior al 5%.</span>
+          </label>
+          <label class="flex items-start space-x-2 p-2.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 cursor-pointer">
+            <input type="checkbox" checked class="mt-0.5 rounded text-sky-600 focus:ring-0">
+            <span><strong>Corte Quincenal de Estimación:</strong> Reducir el ciclo de cobro para no financiar al cliente general.</span>
+          </label>
+          <label class="flex items-start space-x-2 p-2.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 cursor-pointer">
+            <input type="checkbox" checked class="mt-0.5 rounded text-sky-600 focus:ring-0">
+            <span><strong>Anticipo Mínimo del 30%:</strong> Asegurar compra temprana de insumos de ruta crítica para congelar precios.</span>
+          </label>
+          <label class="flex items-start space-x-2 p-2.5 rounded-lg border border-slate-100 bg-slate-50 hover:bg-slate-100 cursor-pointer">
+            <input type="checkbox" class="mt-0.5 rounded text-sky-600 focus:ring-0">
+            <span><strong>Fianza de Vicios Ocultos en vez de Retención en Efectivo:</strong> Evita congelar el 5% al 10% de tu margen en caja del cliente.</span>
+          </label>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Modal: Capturar / Editar Partida -->
+  <div id="modalPartida" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden transform transition-all">
+      <div class="px-6 py-4 bg-slate-900 text-white flex justify-between items-center">
+        <h3 class="font-bold text-base flex items-center space-x-2">
+          <i data-lucide="plus-circle" class="w-5 h-5 text-sky-400"></i>
+          <span id="modalTitle">Agregar Nueva Partida al Presupuesto</span>
+        </h3>
+        <button onclick="closeModalPartida()" class="text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="formPartida" onsubmit="handleSavePartida(event)" class="p-6 space-y-4 text-xs text-slate-700">
+        <input type="hidden" id="partidaId">
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block font-semibold mb-1">Código de Partida</label>
+            <input type="text" id="partidaCodigo" required placeholder="Ej: MAT-01 o EST-01" class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-sky-500 outline-none uppercase font-mono">
+          </div>
+          <div>
+            <label class="block font-semibold mb-1">Clasificación de Costo</label>
+            <select id="partidaTipo" required class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-sky-500 outline-none">
+              <option value="Ingreso">Estimación / Ingreso</option>
+              <option value="Materiales">Materiales e Insumos</option>
+              <option value="Mano de Obra">Mano de Obra / Destajos</option>
+              <option value="Maquinaria">Maquinaria y Equipos</option>
+              <option value="Subcontratos">Subcontratistas</option>
+              <option value="Indirectos">Indirectos de Obra</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-semibold mb-1">Descripción de la Partida / Concepto</label>
+          <input type="text" id="partidaConcepto" required placeholder="Ej: Concreto F'c=250 kg/cm2, Suministro y Colocación" class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-sky-500 outline-none">
+        </div>
+
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="block font-semibold mb-1">Unidad</label>
+            <input type="text" id="partidaUnidad" required placeholder="m2, m3, ton, pza" class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-sky-500 outline-none">
+          </div>
+          <div>
+            <label class="block font-semibold mb-1">Cant. Presupuestada</label>
+            <input type="number" id="partidaCantPpto" step="any" required placeholder="0.00" class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-sky-500 outline-none">
+          </div>
+          <div>
+            <label class="block font-semibold mb-1">P.U. Presupuestado ($)</label>
+            <input type="number" id="partidaPuPpto" step="any" required placeholder="0.00" class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-sky-500 outline-none">
+          </div>
+        </div>
+
+        <div class="border-t border-slate-200 pt-3">
+          <span class="text-slate-500 font-bold block mb-2">Ejecución Real en Campo (Corte Actual):</span>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block font-semibold mb-1">Cantidad Real Ejecutada</label>
+              <input type="number" id="partidaCantReal" step="any" value="0" class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-sky-500 outline-none">
+            </div>
+            <div>
+              <label class="block font-semibold mb-1">P.U. Real Incurrido ($)</label>
+              <input type="number" id="partidaPuReal" step="any" value="0" class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-sky-500 outline-none">
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end space-x-3 pt-4 border-t border-slate-200">
+          <button type="button" onclick="closeModalPartida()" class="px-4 py-2 border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-100 font-medium">Cancelar</button>
+          <button type="submit" class="px-5 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-bold shadow-md transition">Guardar Partida</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Crear Nuevo Giro / Especialidad de Contratista -->
+  <div id="modalNuevoGiro" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden transform transition-all">
+      <div class="px-6 py-4 bg-slate-900 text-white flex justify-between items-center">
+        <h3 class="font-bold text-base flex items-center space-x-2">
+          <i data-lucide="sparkles" class="w-5 h-5 text-amber-400"></i>
+          <span>Registrar Nuevo Giro / Especialidad</span>
+        </h3>
+        <button onclick="closeModalNuevoGiro()" class="text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="formNuevoGiro" onsubmit="handleCrearNuevoGiro(event)" class="p-6 space-y-4 text-xs text-slate-700">
+        <div>
+          <label class="block font-semibold mb-1">Nombre de la Especialidad / Giro</label>
+          <input type="text" id="nuevoGiroNombre" required placeholder="Ej: Domótica y Casas Inteligentes, Climatización HVAC..." class="w-full border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-sky-500 outline-none text-sm">
+        </div>
+
+        <div>
+          <label class="block font-semibold mb-1">Ícono o Emoji representativo</label>
+          <input type="text" id="nuevoGiroEmoji" value="🏠" maxlength="4" class="w-20 border border-slate-300 rounded-lg p-2 text-center text-lg focus:ring-2 focus:ring-sky-500 outline-none">
+        </div>
+
+        <div>
+          <label class="block font-semibold mb-1">Plantilla de arranque</label>
+          <select id="nuevoGiroPlantilla" class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-sky-500 outline-none">
+            <option value="domotica">Plantilla Domótica / Casas Inteligentes (Completa)</option>
+            <option value="en_blanco">Lienzo en Blanco (Capturar desde cero)</option>
+            <option value="copiar_actual">Clonar partidas del giro actualmente activo</option>
+          </select>
+          <p class="text-[11px] text-slate-500 mt-1">Podrás editar, añadir y ajustar todas las partidas operativas inmediatamente.</p>
+        </div>
+
+        <div class="flex items-center justify-end space-x-3 pt-4 border-t border-slate-200">
+          <button type="button" onclick="closeModalNuevoGiro()" class="px-4 py-2 border border-slate-300 text-slate-600 rounded-lg hover:bg-slate-100 font-medium">Cancelar</button>
+          <button type="submit" class="px-5 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-lg font-bold shadow-md transition">Crear Especialidad</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Vista Previa y Generación de Reporte Ejecutivo Formal para Compartir -->
+  <div id="modalReportePreview" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-2 sm:p-4">
+    <div class="bg-white rounded-2xl max-w-5xl w-full max-h-[92vh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-3.5 bg-slate-900 text-white flex justify-between items-center no-print">
+        <div class="flex items-center space-x-2">
+          <div class="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+            <i data-lucide="file-check" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="font-bold text-sm text-white">Vista Previa de Informe Ejecutivo para Compartir</h3>
+            <p class="text-[11px] text-slate-400">Formato homogéneo con firmas, índices financieros y análisis de desviaciones</p>
+          </div>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button onclick="printExecutiveReport()" class="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs rounded-lg flex items-center space-x-1.5 shadow-sm transition">
+            <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+            <span>Imprimir / Guardar en PDF</span>
+          </button>
+          <button onclick="closeReportePreview()" class="text-slate-400 hover:text-white p-1">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Report Body / Sheet Container -->
+      <div class="flex-1 overflow-y-auto p-6 sm:p-8 bg-slate-100 custom-scrollbar" id="reportSheetWrapper">
+        <div id="executiveReportPaper" class="bg-white max-w-4xl mx-auto p-8 sm:p-10 rounded-xl shadow-lg border border-slate-200 text-slate-800 space-y-6">
+          <!-- Dynamic Content generated by generateReportHtml() -->
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 no-print">
+        <span class="flex items-center space-x-1">
+          <i data-lucide="info" class="w-4 h-4 text-sky-600"></i>
+          <span>Tip: En la ventana de impresión, selecciona <strong>"Guardar como PDF"</strong> y activa <strong>"Gráficos de fondo"</strong> para una estética óptima.</span>
+        </span>
+        <button onclick="closeReportePreview()" class="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg font-medium transition">
+          Cerrar
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Notification Toast -->
+  <div id="toastNotification" class="fixed bottom-5 right-5 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl flex items-center space-x-3 text-xs z-50 transform translate-y-20 opacity-0 transition-all duration-300 border border-slate-700">
+    <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-400"></i>
+    <span id="toastMsg">Operación completada exitosamente</span>
+  </div>
+
+  <!-- Footer -->
+  <footer class="bg-white border-t border-slate-200 py-4 mt-auto">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2">
+      <div>
+        <span>Plataforma Financiera para Contratistas de Construcción</span> &bull; <span>Presupuesto Maestro Automatizado</span>
+      </div>
+      <div class="flex items-center space-x-4">
+        <span>Sincronización en tiempo real</span>
+        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Initial dataset tailored for construction contractors (Urbanization, Building, Electrical, Windows, Smart Homes)
+    const PRESETS = {
+      edificacion: [
+        { id: 1, codigo: 'ING-01', concepto: 'Estimación 01 - Cimentación y Muros', tipo: 'Ingreso', unidad: 'est', cantPpto: 1, puPpto: 2850000, cantReal: 1, puReal: 2900000 },
+        { id: 2, codigo: 'ING-02', concepto: 'Estimación 02 - Losas y Estructura', tipo: 'Ingreso', unidad: 'est', cantPpto: 1, puPpto: 3200000, cantReal: 1, puReal: 3100000 },
+        { id: 3, codigo: 'MAT-01', concepto: 'Concreto Premezclado f\'c=250 kg/cm2', tipo: 'Materiales', unidad: 'm3', cantPpto: 450, puPpto: 2450, cantReal: 468, puReal: 2520 },
+        { id: 4, codigo: 'MAT-02', concepto: 'Acero de Refuerzo Grado 60 #3 a #8', tipo: 'Materiales', unidad: 'ton', cantPpto: 38, puPpto: 22800, cantReal: 39.5, puReal: 23600 },
+        { id: 5, codigo: 'MO-01', concepto: 'Cuadrilla de Fierreros y Carpinteros', tipo: 'Mano de Obra', unidad: 'jor', cantPpto: 520, puPpto: 920, cantReal: 540, puReal: 940 },
+        { id: 6, codigo: 'EQ-01', concepto: 'Bomba de Pluma y Grúa Torre', tipo: 'Maquinaria', unidad: 'mes', cantPpto: 3, puPpto: 85000, cantReal: 3, puReal: 91000 },
+        { id: 7, codigo: 'SUB-01', concepto: 'Subcontrato de Cimbra Especializada', tipo: 'Subcontratos', unidad: 'm2', cantPpto: 1800, puPpto: 340, cantReal: 1800, puReal: 345 },
+        { id: 8, codigo: 'IND-01', concepto: 'Residencia de Obra, Bodeguero y Seg.', tipo: 'Indirectos', unidad: 'mes', cantPpto: 3, puPpto: 110000, cantReal: 3, puReal: 115000 }
+      ],
+      urbanizacion: [
+        { id: 1, codigo: 'ING-01', concepto: 'Estimación 01 - Desmonte y Trazo', tipo: 'Ingreso', unidad: 'est', cantPpto: 1, puPpto: 1950000, cantReal: 1, puReal: 1950000 },
+        { id: 2, codigo: 'ING-02', concepto: 'Estimación 02 - Rasantes y Drenajes', tipo: 'Ingreso', unidad: 'est', cantPpto: 1, puPpto: 2700000, cantReal: 1, puReal: 2550000 },
+        { id: 3, codigo: 'MAT-01', concepto: 'Tubería PAD Corrugada 24 pulg.', tipo: 'Materiales', unidad: 'ml', cantPpto: 650, puPpto: 1100, cantReal: 670, puReal: 1180 },
+        { id: 4, codigo: 'EQ-01', concepto: 'Excavadora Cat 320D y Motoconformadora', tipo: 'Maquinaria', unidad: 'hr', cantPpto: 420, puPpto: 1450, cantReal: 460, puReal: 1490 },
+        { id: 5, codigo: 'MO-01', concepto: 'Destajo Instalación Hidráulica/Sanitaria', tipo: 'Mano de Obra', unidad: 'ml', cantPpto: 650, puPpto: 280, cantReal: 650, puReal: 290 },
+        { id: 6, codigo: 'SUB-01', concepto: 'Tendido de Base Hidráulica y Asfalto', tipo: 'Subcontratos', unidad: 'm2', cantPpto: 4200, puPpto: 310, cantReal: 4150, puReal: 325 },
+        { id: 7, codigo: 'IND-01', concepto: 'Campamento, Topografía y Supervisión', tipo: 'Indirectos', unidad: 'mes', cantPpto: 2, puPpto: 95000, cantReal: 2, puReal: 98000 }
+      ],
+      electricidad: [
+        { id: 1, codigo: 'ING-01', concepto: 'Estimación 01 - Canalizaciones y Ductos', tipo: 'Ingreso', unidad: 'est', cantPpto: 1, puPpto: 1450000, cantReal: 1, puReal: 1420000 },
+        { id: 2, codigo: 'ING-02', concepto: 'Estimación 02 - Cableado y Tableros', tipo: 'Ingreso', unidad: 'est', cantPpto: 1, puPpto: 2100000, cantReal: 1, puReal: 2000000 },
+        { id: 3, codigo: 'MAT-01', concepto: 'Cable Cobre THHN/THWN-2 #4/0 AWG', tipo: 'Materiales', unidad: 'ml', cantPpto: 2800, puPpto: 295, cantReal: 2950, puReal: 320 },
+        { id: 4, codigo: 'MAT-02', concepto: 'Transformador Tipo Pedestal 300 kVA', tipo: 'Materiales', unidad: 'pza', cantPpto: 2, puPpto: 245000, cantReal: 2, puReal: 258000 },
+        { id: 5, codigo: 'MO-01', concepto: 'Técnicos Electricistas y Especialistas', tipo: 'Mano de Obra', unidad: 'jor', cantPpto: 320, puPpto: 880, cantReal: 335, puReal: 890 },
+        { id: 6, codigo: 'EQ-01', concepto: 'Grúa con Canastilla y Equipos Medición', tipo: 'Maquinaria', unidad: 'sem', cantPpto: 6, puPpto: 28000, cantReal: 6, puReal: 29000 },
+        { id: 7, codigo: 'IND-01', concepto: 'Unidad Verificadora (UVIE) e Indirectos', tipo: 'Indirectos', unidad: 'lote', cantPpto: 1, puPpto: 85000, cantReal: 1, puReal: 92000 }
+      ],
+      ventaneria: [
+        { id: 1, codigo: 'ING-01', concepto: 'Estimación 01 - Cancelería Perimetral', tipo: 'Ingreso', unidad: 'est', cantPpto: 1, puPpto: 1750000, cantReal: 1, puReal: 1750000 },
+        { id: 2, codigo: 'ING-02', concepto: 'Estimación 02 - Fachada Integral Doble Vidrio', tipo: 'Ingreso', unidad: 'est', cantPpto: 1, puPpto: 2400000, cantReal: 1, puReal: 2320000 },
+        { id: 3, codigo: 'MAT-01', concepto: 'Cristal Templado Douvent Low-E 6+6mm', tipo: 'Materiales', unidad: 'm2', cantPpto: 820, puPpto: 1950, cantReal: 840, puReal: 2100 },
+        { id: 4, codigo: 'MAT-02', concepto: 'Perfiles Aluminio Serie Eurovent Anodizado', tipo: 'Materiales', unidad: 'kg', cantPpto: 3200, puPpto: 185, cantReal: 3350, puReal: 198 },
+        { id: 5, codigo: 'MO-01', concepto: 'Instaladores Certificados y Selladores', tipo: 'Mano de Obra', unidad: 'jor', cantPpto: 280, puPpto: 850, cantReal: 295, puReal: 880 },
+        { id: 6, codigo: 'EQ-01', concepto: 'Plataformas de Elevación Articulada (Genie)', tipo: 'Maquinaria', unidad: 'mes', cantPpto: 2, puPpto: 45000, cantReal: 2.2, puReal: 46000 },
+        { id: 7, codigo: 'IND-01', concepto: 'Pruebas de Hermeticidad y Taller', tipo: 'Indirectos', unidad: 'mes', cantPpto: 2, puPpto: 60000, cantReal: 2, puReal: 60000 }
+      ],
+      acabados: [
+        { id: 1, codigo: 'ING-01', concepto: 'Estimación 01 - Yesos y Plafones', tipo: 'Ingreso', unidad: 'est', cantPpto: 1, puPpto: 1200000, cantReal: 1, puReal: 1180000 },
+        { id: 2, codigo: 'ING-02', concepto: 'Estimación 02 - Porcelanatos y Pinturas', tipo: 'Ingreso', unidad: 'est', cantPpto: 1, puPpto: 1800000, cantReal: 1, puReal: 1820000 },
+        { id: 3, codigo: 'MAT-01', concepto: 'Porcelanato Rectificado 60x120 cm', tipo: 'Materiales', unidad: 'm2', cantPpto: 1450, puPpto: 480, cantReal: 1520, puReal: 495 },
+        { id: 4, codigo: 'MAT-02', concepto: 'Pintura Vinílica Antibacterial 10 años', tipo: 'Materiales', unidad: 'cub', cantPpto: 110, puPpto: 2400, cantReal: 118, puReal: 2450 },
+        { id: 5, codigo: 'MO-01', concepto: 'Destajistas de Acabados Finos', tipo: 'Mano de Obra', unidad: 'm2', cantPpto: 1450, puPpto: 220, cantReal: 1450, puReal: 225 },
+        { id: 6, codigo: 'IND-01', concepto: 'Acarreos, Limpieza Fina y Protección', tipo: 'Indirectos', unidad: 'lote', cantPpto: 1, puPpto: 90000, cantReal: 1, puReal: 95000 }
+      ],
+      domotica: [
+        { id: 1, codigo: 'ING-01', concepto: 'Estimación 01 - Cableado Estructurado y Rack de Domótica', tipo: 'Ingreso', unidad: 'est', cantPpto: 1, puPpto: 1350000, cantReal: 1, puReal: 1350000 },
+        { id: 2, codigo: 'ING-02', concepto: 'Estimación 02 - Control de Iluminación, Clima y Teclados', tipo: 'Ingreso', unidad: 'est', cantPpto: 1, puPpto: 1950000, cantReal: 1, puReal: 1900000 },
+        { id: 3, codigo: 'ING-03', concepto: 'Estimación 03 - Audio Distribuido, CCTV y Puesta en Marcha', tipo: 'Ingreso', unidad: 'est', cantPpto: 1, puPpto: 1500000, cantReal: 1, puReal: 1540000 },
+        { id: 4, codigo: 'MAT-01', concepto: 'Procesador Central y Dimmer Modules KNX/Crestron', tipo: 'Materiales', unidad: 'pza', cantPpto: 18, puPpto: 42000, cantReal: 18, puReal: 44500 },
+        { id: 5, codigo: 'MAT-02', concepto: 'Cable UTP Cat 6A 100% Cobre y Bus KNX', tipo: 'Materiales', unidad: 'bob', cantPpto: 45, puPpto: 4800, cantReal: 48, puReal: 5100 },
+        { id: 6, codigo: 'MAT-03', concepto: 'Pantallas Táctiles de Muro 10" y Keypads Metálicos', tipo: 'Materiales', unidad: 'pza', cantPpto: 24, puPpto: 18500, cantReal: 24, puReal: 18200 },
+        { id: 7, codigo: 'MO-01', concepto: 'Técnicos Certificados en Domótica y Redes', tipo: 'Mano de Obra', unidad: 'jor', cantPpto: 220, puPpto: 980, cantReal: 235, puReal: 1020 },
+        { id: 8, codigo: 'SUB-01', concepto: 'Programación Avanzada, Escenas y App Móvil', tipo: 'Subcontratos', unidad: 'serv', cantPpto: 1, puPpto: 240000, cantReal: 1, puReal: 240000 },
+        { id: 9, codigo: 'EQ-01', concepto: 'Certificador de Red Fluke y Racks Especializados', tipo: 'Maquinaria', unidad: 'mes', cantPpto: 2, puPpto: 35000, cantReal: 2, puReal: 35000 },
+        { id: 10, codigo: 'IND-01', concepto: 'Ingeniería de Detalle, Planos As-Built y Póliza 1 Año', tipo: 'Indirectos', unidad: 'lote', cantPpto: 1, puPpto: 120000, cantReal: 1, puReal: 128000 }
+      ]
+    };
+
+    // Active state
+    let currentSpecialty = 'edificacion';
+    let currentCurrency = 'MXN';
+    let currentYear = '2026';
+    let partidas = JSON.parse(JSON.stringify(PRESETS[currentSpecialty]));
+    let chartMensualInstance = null;
+    let chartCategoriasInstance = null;
+    let chartCashFlowInstance = null;
+    let chartPnlInstance = null;
+
+    // Financial parameters
+    let finParams = {
+      saldoInicial: 350000,
+      pctAmortizacion: 30,
+      pctFondoGarantia: 5,
+      plazoCobroDias: 30
+    };
+
+    // Format helpers with dynamic currency configuration
+    const fmt = (num) => {
+      try {
+        return new Intl.NumberFormat('es-MX', { 
+          style: 'currency', 
+          currency: currentCurrency, 
+          maximumFractionDigits: 0 
+        }).format(num || 0);
+      } catch (e) {
+        return `${currentCurrency} ` + Number(num || 0).toLocaleString('es-MX', { maximumFractionDigits: 0 });
+      }
+    };
+    const fmtPct = (num) => (num >= 0 ? `+${num.toFixed(1)}%` : `${num.toFixed(1)}%`);
+
+    function handleCurrencyChange(val) {
+      currentCurrency = val;
+      recalculateAll();
+      showToast(`Moneda cambiada a ${val}`);
+    }
+
+    function handleYearChange(val) {
+      if (!val) return;
+      currentYear = val.toString().trim();
+      recalculateAll();
+      showToast(`Periodo fiscal actualizado al año ${currentYear}`);
+    }
+
+    function handleSpecialtyChange(val) {
+      currentSpecialty = val;
+      if (!PRESETS[val]) {
+        PRESETS[val] = [];
+      }
+      partidas = JSON.parse(JSON.stringify(_giros[val] || PRESETS[val]));
+      recalculateAll();
+      showToast(`Especialidad cambiada a: ${val.toUpperCase()}`);
+    }
+
+    function switchSpecialty(val) {
+      handleSpecialtyChange(val);
+    }
+
+    function openModalNuevoGiro() {
+      document.getElementById('formNuevoGiro').reset();
+      document.getElementById('modalNuevoGiro').classList.remove('hidden');
+    }
+
+    function closeModalNuevoGiro() {
+      document.getElementById('modalNuevoGiro').classList.add('hidden');
+    }
+
+    function handleCrearNuevoGiro(e) {
+      e.preventDefault();
+      const nombre = document.getElementById('nuevoGiroNombre').value.trim();
+      const emoji = document.getElementById('nuevoGiroEmoji').value.trim() || '🏗️';
+      const plantilla = document.getElementById('nuevoGiroPlantilla').value;
+
+      if (!nombre) return;
+
+      const slug = 'giro_' + Date.now();
+      let nuevasPartidas = [];
+
+      if (plantilla === 'domotica') {
+        nuevasPartidas = JSON.parse(JSON.stringify(PRESETS.domotica));
+      } else if (plantilla === 'copiar_actual') {
+        nuevasPartidas = JSON.parse(JSON.stringify(partidas));
+      } else {
+        // En blanco pero con una estructura mínima sugerida
+        nuevasPartidas = [
+          { id: 1, codigo: 'ING-01', concepto: `Estimación 01 - ${nombre}`, tipo: 'Ingreso', unidad: 'est', cantPpto: 1, puPpto: 1000000, cantReal: 1, puReal: 1000000 },
+          { id: 2, codigo: 'MAT-01', concepto: 'Materiales e Insumos Principales', tipo: 'Materiales', unidad: 'lote', cantPpto: 1, puPpto: 450000, cantReal: 1, puReal: 460000 },
+          { id: 3, codigo: 'MO-01', concepto: 'Mano de Obra Especializada', tipo: 'Mano de Obra', unidad: 'jor', cantPpto: 100, puPpto: 850, cantReal: 100, puReal: 850 },
+          { id: 4, codigo: 'IND-01', concepto: 'Supervisión y Gastos de Obra', tipo: 'Indirectos', unidad: 'mes', cantPpto: 1, puPpto: 50000, cantReal: 1, puReal: 50000 }
+        ];
+      }
+
+      PRESETS[slug] = nuevasPartidas;
+
+      // Add to select
+      const select = document.getElementById('specialtySelect');
+      const opt = document.createElement('option');
+      opt.value = slug;
+      opt.textContent = `${emoji} ${nombre}`;
+      select.appendChild(opt);
+      select.value = slug;
+
+      currentSpecialty = slug;
+      partidas = JSON.parse(JSON.stringify(PRESETS[slug]));
+
+      closeModalNuevoGiro();
+      recalculateAll();
+      showToast(`¡Giro "${nombre}" creado y activado!`);
+    }
+
+    function resetDataDemo() {
+      if (!confirm('¿Restaurar la plantilla de este giro? Se perderán tus cambios en él.')) return;
+      partidas = JSON.parse(JSON.stringify(PRESETS[currentSpecialty] || PRESETS.edificacion));
+      recalculateAll();
+      showToast("Datos restaurados al modelo de referencia");
+    }
+
+    function recalculateAll() {
+      renderKPIs();
+      renderVarianceTable();
+      renderTablasOperativo();
+      renderEstadoResultados();
+      renderCashFlowTable();
+      updateCharts();
+      runSimulation();
+    }
+
+    function getTotals() {
+      let totalIngresoPpto = 0;
+      let totalIngresoReal = 0;
+      let totalCostoPpto = 0;
+      let totalCostoReal = 0;
+
+      partidas.forEach(p => {
+        const subPpto = (p.cantPpto || 0) * (p.puPpto || 0);
+        const subReal = (p.cantReal || 0) * (p.puReal || 0);
+
+        if (p.tipo === 'Ingreso') {
+          totalIngresoPpto += subPpto;
+          totalIngresoReal += subReal;
+        } else {
+          totalCostoPpto += subPpto;
+          totalCostoReal += subReal;
+        }
+      });
+
+      const utilidadPpto = totalIngresoPpto - totalCostoPpto;
+      const utilidadReal = totalIngresoReal - totalCostoReal;
+      const margenPpto = totalIngresoPpto > 0 ? (utilidadPpto / totalIngresoPpto) * 100 : 0;
+      const margenReal = totalIngresoReal > 0 ? (utilidadReal / totalIngresoReal) * 100 : 0;
+
+      return {
+        totalIngresoPpto,
+        totalIngresoReal,
+        totalCostoPpto,
+        totalCostoReal,
+        utilidadPpto,
+        utilidadReal,
+        margenPpto,
+        margenReal
+      };
+    }
+
+    function renderKPIs() {
+      const totals = getTotals();
+
+      // Ingresos
+      document.getElementById('kpiIngresosReal').textContent = fmt(totals.totalIngresoReal);
+      document.getElementById('kpiIngresosPpto').textContent = fmt(totals.totalIngresoPpto);
+      const varIngresosPct = totals.totalIngresoPpto > 0 ? ((totals.totalIngresoReal - totals.totalIngresoPpto) / totals.totalIngresoPpto) * 100 : 0;
+      const elVarIng = document.getElementById('kpiIngresosVar');
+      elVarIng.textContent = fmtPct(varIngresosPct);
+      elVarIng.className = varIngresosPct >= 0 ? "px-2 py-0.5 rounded font-semibold text-emerald-700 bg-emerald-50" : "px-2 py-0.5 rounded font-semibold text-rose-700 bg-rose-50";
+      const pctProgIng = totals.totalIngresoPpto > 0 ? Math.min(100, Math.max(0, (totals.totalIngresoReal / totals.totalIngresoPpto) * 100)) : 0;
+      document.getElementById('kpiIngresosProgress').style.width = `${pctProgIng}%`;
+
+      // Costos
+      document.getElementById('kpiCostoReal').textContent = fmt(totals.totalCostoReal);
+      document.getElementById('kpiCostoPpto').textContent = fmt(totals.totalCostoPpto);
+      const varCostoPct = totals.totalCostoPpto > 0 ? ((totals.totalCostoReal - totals.totalCostoPpto) / totals.totalCostoPpto) * 100 : 0;
+      const elVarCost = document.getElementById('kpiCostoVar');
+      elVarCost.textContent = fmtPct(varCostoPct);
+      elVarCost.className = varCostoPct <= 0 ? "px-2 py-0.5 rounded font-semibold text-emerald-700 bg-emerald-50" : "px-2 py-0.5 rounded font-semibold text-rose-700 bg-rose-50";
+      const pctProgCost = totals.totalCostoPpto > 0 ? Math.min(100, Math.max(0, (totals.totalCostoReal / totals.totalCostoPpto) * 100)) : 0;
+      document.getElementById('kpiCostoProgress').style.width = `${pctProgCost}%`;
+
+      // Utilidad
+      document.getElementById('kpiUtilidadReal').textContent = fmt(totals.utilidadReal);
+      document.getElementById('kpiMargenRealPct').textContent = `${totals.margenReal.toFixed(1)}%`;
+      document.getElementById('kpiMargenPptoPct').textContent = `${totals.margenPpto.toFixed(1)}%`;
+      document.getElementById('kpiUtilidadProgress').style.width = `${Math.min(100, Math.max(0, totals.margenReal))}%`;
+
+      // Tesorería y Fondo de Garantía
+      const fondoGarantia = totals.totalIngresoReal * (finParams.pctFondoGarantia / 100);
+      document.getElementById('kpiFondoGarantia').textContent = fmt(fondoGarantia);
+
+      const saldoFinalEst = finParams.saldoInicial + (totals.utilidadReal * 0.85); // Factor neto por retenciones temporales
+      document.getElementById('kpiSaldoCaja').textContent = fmt(saldoFinalEst);
+      const kpiMsg = document.getElementById('kpiLiquidezMsg');
+      if (saldoFinalEst > 200000) {
+        kpiMsg.textContent = "Superávit de Tesorería";
+        kpiMsg.className = "text-emerald-600 font-medium";
+      } else if (saldoFinalEst > 0) {
+        kpiMsg.textContent = "Caja Estrecha / Alerta";
+        kpiMsg.className = "text-amber-600 font-medium";
+      } else {
+        kpiMsg.textContent = "Déficit / Requiere Línea";
+        kpiMsg.className = "text-rose-600 font-medium";
+      }
+    }
+
+    function renderVarianceTable() {
+      const tbody = document.getElementById('varianceTableBody');
+      tbody.innerHTML = '';
+
+      // Group totals by category
+      const categories = ['Ingreso', 'Materiales', 'Mano de Obra', 'Maquinaria', 'Subcontratos', 'Indirectos'];
+
+      categories.forEach(cat => {
+        const items = partidas.filter(p => p.tipo === cat);
+        if (items.length === 0) return;
+
+        let pptoSub = 0;
+        let realSub = 0;
+        items.forEach(i => {
+          pptoSub += (i.cantPpto || 0) * (i.puPpto || 0);
+          realSub += (i.cantReal || 0) * (i.puReal || 0);
+        });
+
+        const diff = realSub - pptoSub;
+        const diffPct = pptoSub > 0 ? (diff / pptoSub) * 100 : 0;
+
+        // Condition for favorable vs unfavorable
+        let isFavorable = false;
+        let statusBadge = '';
+
+        if (cat === 'Ingreso') {
+          isFavorable = diff >= 0;
+          if (diff >= 0) {
+            statusBadge = `<span class="px-2.5 py-1 rounded-full text-xs font-semibold badge-favorable">Superávit Facturación</span>`;
+          } else if (Math.abs(diffPct) <= 5) {
+            statusBadge = `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">Revisión Menor</span>`;
+          } else {
+            statusBadge = `<span class="px-2.5 py-1 rounded-full text-xs font-semibold badge-desfavorable">Retraso Estimación</span>`;
+          }
+        } else {
+          // For costs, lower than budget is favorable
+          isFavorable = diff <= 0;
+          if (diff <= 0) {
+            statusBadge = `<span class="px-2.5 py-1 rounded-full text-xs font-semibold badge-favorable">Ahorro Incurrido</span>`;
+          } else if (diffPct <= 5) {
+            statusBadge = `<span class="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">Variación Leve (+${diffPct.toFixed(1)}%)</span>`;
+          } else {
+            statusBadge = `<span class="px-2.5 py-1 rounded-full text-xs font-semibold badge-desfavorable">Sobrecosto Crítico (+${diffPct.toFixed(1)}%)</span>`;
+          }
+        }
+
+        const tr = document.createElement('tr');
+        tr.className = "hover:bg-slate-50 transition";
+        tr.innerHTML = `
+          <td class="py-3 px-4 font-semibold text-slate-900">${cat}</td>
+          <td class="py-3 px-4 text-xs text-slate-500">${cat === 'Ingreso' ? 'Flujo Positivo' : 'Costo Directo/Ind.'}</td>
+          <td class="py-3 px-4 text-right font-mono text-slate-600">${fmt(pptoSub)}</td>
+          <td class="py-3 px-4 text-right font-mono font-bold text-slate-800">${fmt(realSub)}</td>
+          <td class="py-3 px-4 text-right font-mono ${diff > 0 && cat !== 'Ingreso' ? 'text-rose-600 font-semibold' : (diff < 0 && cat !== 'Ingreso' ? 'text-emerald-600 font-semibold' : 'text-slate-800')}">
+            ${fmt(diff)}
+          </td>
+          <td class="py-3 px-4 text-center font-semibold ${isFavorable ? 'text-emerald-700' : 'text-rose-700'}">
+            ${fmtPct(diffPct)}
+          </td>
+          <td class="py-3 px-4 text-center">
+            ${statusBadge}
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderTablasOperativo() {
+      const tbody = document.getElementById('operativoTableBody');
+      const tfoot = document.getElementById('operativoTableFoot');
+      const filtro = document.getElementById('filtroTipoPartida').value;
+      tbody.innerHTML = '';
+
+      const filtradas = filtro === 'todos' ? partidas : partidas.filter(p => p.tipo === filtro);
+
+      let totPpto = 0;
+      let totReal = 0;
+
+      filtradas.forEach(p => {
+        const subPpto = (p.cantPpto || 0) * (p.puPpto || 0);
+        const subReal = (p.cantReal || 0) * (p.puReal || 0);
+        const diff = subReal - subPpto;
+        totPpto += subPpto;
+        totReal += subReal;
+
+        const tr = document.createElement('tr');
+        tr.className = "hover:bg-sky-50/40 transition border-b border-slate-100";
+        tr.innerHTML = `
+          <td class="py-2.5 px-4 font-mono font-bold text-sky-900">${p.codigo}</td>
+          <td class="py-2.5 px-4">
+            <span class="font-medium text-slate-800 block">${p.concepto}</span>
+            <span class="text-[10px] text-slate-400">Unidad: ${p.unidad}</span>
+          </td>
+          <td class="py-2.5 px-4">
+            <span class="px-2 py-0.5 rounded text-[10px] font-semibold ${p.tipo === 'Ingreso' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-700'}">
+              ${p.tipo}
+            </span>
+          </td>
+          <td class="py-2.5 px-4 text-right font-mono text-slate-600">${Number(p.cantPpto).toLocaleString()}</td>
+          <td class="py-2.5 px-4 text-right font-mono text-slate-600">${fmt(p.puPpto)}</td>
+          <td class="py-2.5 px-4 text-right font-mono font-semibold bg-slate-50 text-slate-900">${fmt(subPpto)}</td>
+          
+          <td class="py-2.5 px-4 text-right font-mono text-slate-700">${Number(p.cantReal).toLocaleString()}</td>
+          <td class="py-2.5 px-4 text-right font-mono text-slate-700">${fmt(p.puReal)}</td>
+          <td class="py-2.5 px-4 text-right font-mono font-bold bg-sky-50 text-sky-900">${fmt(subReal)}</td>
+
+          <td class="py-2.5 px-4 text-right font-mono font-semibold ${diff > 0 && p.tipo !== 'Ingreso' ? 'text-rose-600' : 'text-emerald-600'}">
+            ${fmt(diff)}
+          </td>
+          <td class="py-2.5 px-4 text-center space-x-1">
+            <button onclick="editarPartida(${p.id})" class="p-1 text-slate-500 hover:text-sky-600 rounded transition" title="Editar">
+              <i data-lucide="edit-2" class="w-3.5 h-3.5"></i>
+            </button>
+            <button onclick="eliminarPartida(${p.id})" class="p-1 text-slate-500 hover:text-rose-600 rounded transition" title="Eliminar">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // Update footer totals
+      tfoot.innerHTML = `
+        <tr>
+          <td colspan="5" class="py-3 px-4 uppercase text-right">Subtotal Vista Seleccionada:</td>
+          <td class="py-3 px-4 text-right font-bold text-slate-900 font-mono">${fmt(totPpto)}</td>
+          <td colspan="2" class="py-3 px-4"></td>
+          <td class="py-3 px-4 text-right font-bold text-sky-900 font-mono bg-sky-100/60">${fmt(totReal)}</td>
+          <td class="py-3 px-4 text-right font-bold font-mono ${totReal > totPpto && filtro !== 'Ingreso' ? 'text-rose-700' : 'text-emerald-700'}">
+            ${fmt(totReal - totPpto)}
+          </td>
+          <td></td>
+        </tr>
+      `;
+
+      if (window.lucide) lucide.createIcons();
+    }
+
+    // ESTADO DE RESULTADOS (P&L) CALCULATION & RENDERING
+    function renderEstadoResultados() {
+      const tbody = document.getElementById('pnlTableBody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      const totals = getTotals();
+      const pctAdm = (parseFloat(document.getElementById('pnlGastoAdmPct')?.value) || 4.0) / 100;
+      const pctFin = (parseFloat(document.getElementById('pnlCostoFinPct')?.value) || 1.5) / 100;
+      const pctIsr = (parseFloat(document.getElementById('pnlIsrPct')?.value) || 30.0) / 100;
+
+      // Extract specific cost types
+      const sumByType = (tipo, field) => partidas.filter(p => p.tipo === tipo).reduce((acc, p) => acc + ((p[field === 'ppto' ? 'cantPpto' : 'cantReal'] || 0) * (p[field === 'ppto' ? 'puPpto' : 'puReal'] || 0)), 0);
+
+      const matPpto = sumByType('Materiales', 'ppto');
+      const matReal = sumByType('Materiales', 'real');
+      const moPpto  = sumByType('Mano de Obra', 'ppto');
+      const moReal  = sumByType('Mano de Obra', 'real');
+      const eqPpto  = sumByType('Maquinaria', 'ppto');
+      const eqReal  = sumByType('Maquinaria', 'real');
+      const subPpto = sumByType('Subcontratos', 'ppto');
+      const subReal = sumByType('Subcontratos', 'real');
+      const indPpto = sumByType('Indirectos', 'ppto');
+      const indReal = sumByType('Indirectos', 'real');
+
+      const costoDirectoPpto = matPpto + moPpto + eqPpto + subPpto;
+      const costoDirectoReal = matReal + moReal + eqReal + subReal;
+
+      const utilBrutaPpto = totals.totalIngresoPpto - costoDirectoPpto;
+      const utilBrutaReal = totals.totalIngresoReal - costoDirectoReal;
+
+      const admCentralPpto = totals.totalIngresoPpto * pctAdm;
+      const admCentralReal = totals.totalIngresoReal * pctAdm;
+
+      const ebitdaPpto = utilBrutaPpto - indPpto - admCentralPpto;
+      const ebitdaReal = utilBrutaReal - indReal - admCentralReal;
+
+      const costoFinPpto = totals.totalIngresoPpto * pctFin;
+      const costoFinReal = totals.totalIngresoReal * pctFin;
+
+      const uaiPpto = ebitdaPpto - costoFinPpto;
+      const uaiReal = ebitdaReal - costoFinReal;
+
+      const isrPpto = Math.max(0, uaiPpto * pctIsr);
+      const isrReal = Math.max(0, uaiReal * pctIsr);
+
+      const utilNetaPpto = uaiPpto - isrPpto;
+      const utilNetaReal = uaiReal - isrReal;
+
+      // Update Card Displays
+      const mBrutoReal = totals.totalIngresoReal > 0 ? (utilBrutaReal / totals.totalIngresoReal) * 100 : 0;
+      const mBrutoPpto = totals.totalIngresoPpto > 0 ? (utilBrutaPpto / totals.totalIngresoPpto) * 100 : 0;
+      document.getElementById('pnlCardBruta').textContent = fmt(utilBrutaReal);
+      document.getElementById('pnlCardBrutaPct').textContent = `${mBrutoReal.toFixed(1)}%`;
+      document.getElementById('pnlCardBrutaPptoPct').textContent = `${mBrutoPpto.toFixed(1)}%`;
+
+      const mEbitdaReal = totals.totalIngresoReal > 0 ? (ebitdaReal / totals.totalIngresoReal) * 100 : 0;
+      const mEbitdaPpto = totals.totalIngresoPpto > 0 ? (ebitdaPpto / totals.totalIngresoPpto) * 100 : 0;
+      document.getElementById('pnlCardEbitda').textContent = fmt(ebitdaReal);
+      document.getElementById('pnlCardEbitdaPct').textContent = `${mEbitdaReal.toFixed(1)}%`;
+      const diffEbitda = mEbitdaReal - mEbitdaPpto;
+      const elEbitdaDiff = document.getElementById('pnlCardEbitdaDiff');
+      elEbitdaDiff.textContent = `Var: ${fmtPct(diffEbitda)}`;
+      elEbitdaDiff.className = diffEbitda >= 0 ? "text-xs font-semibold text-emerald-600" : "text-xs font-semibold text-rose-600";
+
+      const mNetoReal = totals.totalIngresoReal > 0 ? (utilNetaReal / totals.totalIngresoReal) * 100 : 0;
+      document.getElementById('pnlCardNeta').textContent = fmt(utilNetaReal);
+      document.getElementById('pnlCardNetaPct').textContent = `${mNetoReal.toFixed(1)}%`;
+
+      // Rows model for P&L Table
+      const pnlRows = [
+        { name: '1. Ingresos Devengados por Estimaciones', ppto: totals.totalIngresoPpto, real: totals.totalIngresoReal, isHeader: true, isRevenue: true },
+        { name: '  (-) Costo Materiales e Insumos Directos', ppto: matPpto, real: matReal, isCost: true },
+        { name: '  (-) Mano de Obra Directa / Destajos', ppto: moPpto, real: moReal, isCost: true },
+        { name: '  (-) Maquinaria y Equipo Propio / Rentado', ppto: eqPpto, real: eqReal, isCost: true },
+        { name: '  (-) Subcontratos Especializados de Obra', ppto: subPpto, real: subReal, isCost: true },
+        { name: '(=) Costo Directo de Ventas (COGS de Obra)', ppto: costoDirectoPpto, real: costoDirectoReal, isSubtotal: true, isCost: true },
+        { name: '(=) UTILIDAD BRUTA OPERATIVA', ppto: utilBrutaPpto, real: utilBrutaReal, isHighlight: true, isProfit: true },
+        { name: '  (-) Costos Indirectos de Campo y Supervisión', ppto: indPpto, real: indReal, isCost: true },
+        { name: `  (-) Gastos de Adm. Central y Corporativo (${(pctAdm * 100).toFixed(1)}%)`, ppto: admCentralPpto, real: admCentralReal, isCost: true },
+        { name: '(=) EBITDA DE OBRA (Flujo Operativo Bruto)', ppto: ebitdaPpto, real: ebitdaReal, isHighlight: true, isProfit: true },
+        { name: `  (-) Costo Integral de Financiamiento / Factoraje (${(pctFin * 100).toFixed(1)}%)`, ppto: costoFinPpto, real: costoFinReal, isCost: true },
+        { name: '(=) Utilidad Antes de Impuestos (UAI)', ppto: uaiPpto, real: uaiReal, isSubtotal: true, isProfit: true },
+        { name: `  (-) Provisión ISR y PTU Proyectada (${(pctIsr * 100).toFixed(0)}%)`, ppto: isrPpto, real: isrReal, isCost: true },
+        { name: '(=) UTILIDAD NETA DEL CONTRATO', ppto: utilNetaPpto, real: utilNetaReal, isGrandTotal: true, isProfit: true }
+      ];
+
+      const baseIngresoPpto = totals.totalIngresoPpto || 1;
+      const baseIngresoReal = totals.totalIngresoReal || 1;
+
+      pnlRows.forEach(r => {
+        const pctPpto = (r.ppto / baseIngresoPpto) * 100;
+        const pctReal = (r.real / baseIngresoReal) * 100;
+        const diffAbs = r.real - r.ppto;
+        const diffPct = r.ppto !== 0 ? (diffAbs / Math.abs(r.ppto)) * 100 : 0;
+
+        let badge = '';
+        let isFavorable = false;
+
+        if (r.isProfit || r.isRevenue) {
+          isFavorable = diffAbs >= 0;
+          if (diffAbs >= 0) {
+            badge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold badge-favorable">Favorable</span>';
+          } else if (Math.abs(diffPct) <= 5) {
+            badge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">En Rango</span>';
+          } else {
+            badge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold badge-desfavorable">Contracción</span>';
+          }
+        } else {
+          // Costs: lower is favorable
+          isFavorable = diffAbs <= 0;
+          if (diffAbs <= 0) {
+            badge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold badge-favorable">Ahorro</span>';
+          } else if (diffPct <= 5) {
+            badge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">Variación &le;5%</span>';
+          } else {
+            badge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold badge-desfavorable">Sobrecosto</span>';
+          }
+        }
+
+        let trClass = 'border-b border-slate-100 hover:bg-slate-50 transition';
+        if (r.isGrandTotal) {
+          trClass = 'bg-purple-100/70 border-t-2 border-b-2 border-purple-400 font-bold text-slate-900';
+        } else if (r.isHighlight) {
+          trClass = 'bg-emerald-50/60 border-t border-b border-emerald-300 font-bold text-slate-900';
+        } else if (r.isSubtotal) {
+          trClass = 'bg-slate-100/80 font-semibold text-slate-800';
+        } else if (r.isHeader) {
+          trClass = 'bg-sky-50 font-bold text-sky-950';
+        }
+
+        const tr = document.createElement('tr');
+        tr.className = trClass;
+        tr.innerHTML = `
+          <td class="py-2.5 px-4 ${r.isGrandTotal || r.isHighlight ? 'text-slate-900 text-sm' : ''}">${r.name}</td>
+          <td class="py-2.5 px-4 text-right font-mono text-slate-700">${fmt(r.ppto)}</td>
+          <td class="py-2.5 px-4 text-right font-mono text-slate-500">${pctPpto.toFixed(1)}%</td>
+          <td class="py-2.5 px-4 text-right font-mono font-bold ${r.isGrandTotal ? 'text-purple-900 text-sm' : (r.isHighlight ? 'text-emerald-900' : 'text-slate-900')}">${fmt(r.real)}</td>
+          <td class="py-2.5 px-4 text-right font-mono font-semibold ${r.isGrandTotal ? 'text-purple-800' : 'text-slate-700'}">${pctReal.toFixed(1)}%</td>
+          <td class="py-2.5 px-4 text-right font-mono font-semibold ${diffAbs > 0 && r.isCost ? 'text-rose-600' : (diffAbs < 0 && r.isCost ? 'text-emerald-600' : (diffAbs >= 0 ? 'text-emerald-600' : 'text-rose-600'))}">
+            ${fmt(diffAbs)}
+          </td>
+          <td class="py-2.5 px-4 text-center font-semibold ${isFavorable ? 'text-emerald-700' : 'text-rose-700'}">
+            ${fmtPct(diffPct)}
+          </td>
+          <td class="py-2.5 px-4 text-center">
+            ${badge}
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      updatePnlChart(totals, utilBrutaPpto, utilBrutaReal, ebitdaPpto, ebitdaReal, utilNetaPpto, utilNetaReal);
+    }
+
+    function updatePnlChart(totals, ubPpto, ubReal, ebPpto, ebReal, unPpto, unReal) {
+      const canvas = document.getElementById('chartPnl');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+
+      const labels = ['Ingresos Totales', 'Utilidad Bruta', 'EBITDA Obra', 'Utilidad Neta'];
+
+      if (chartPnlInstance) chartPnlInstance.destroy();
+
+      chartPnlInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Presupuesto Maestro ($)',
+              data: [totals.totalIngresoPpto, ubPpto, ebPpto, unPpto],
+              backgroundColor: 'rgba(2, 132, 199, 0.45)',
+              borderColor: 'rgba(2, 132, 199, 1)',
+              borderWidth: 1.5,
+              borderRadius: 4
+            },
+            {
+              label: 'Real Incurrido ($)',
+              data: [totals.totalIngresoReal, ubReal, ebReal, unReal],
+              backgroundColor: 'rgba(16, 185, 129, 0.85)',
+              borderColor: 'rgba(5, 150, 105, 1)',
+              borderWidth: 1.5,
+              borderRadius: 4
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 12, font: { family: 'Inter', size: 11 } } },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`
+              }
+            }
+          },
+          scales: {
+            y: {
+              ticks: {
+                callback: (val) => '$' + (val / 1000).toFixed(0) + 'k',
+                font: { size: 10 }
+              },
+              grid: { color: '#f1f5f9' }
+            },
+            x: {
+              grid: { display: false },
+              ticks: { font: { size: 11, weight: '500' } }
+            }
+          }
+        }
+      });
+    }
+
+    function renderCashFlowTable() {
+      const tbody = document.getElementById('cashFlowTableBody');
+      tbody.innerHTML = '';
+
+      const totals = getTotals();
+      const meses = ['Mes 1', 'Mes 2', 'Mes 3', 'Mes 4', 'Mes 5', 'Mes 6'];
+
+      // Distribution weights over 6 months
+      const weightIngreso = [0.10, 0.20, 0.25, 0.25, 0.15, 0.05];
+      const weightCosto   = [0.15, 0.25, 0.25, 0.20, 0.10, 0.05];
+
+      // Derived values
+      let acumuladoSaldo = finParams.saldoInicial;
+      const amortPct = finParams.pctAmortizacion / 100;
+      const fgPct = finParams.pctFondoGarantia / 100;
+
+      // Rows definitions
+      const rows = [
+        { title: 'Ingresos Brutos por Estimación', type: 'in', calc: (m) => totals.totalIngresoReal * weightIngreso[m] },
+        { title: '(-) Amortización de Anticipo', type: 'ded', calc: (m) => -(totals.totalIngresoReal * weightIngreso[m] * amortPct) },
+        { title: '(-) Retención Fondo de Garantía', type: 'ded', calc: (m) => -(totals.totalIngresoReal * weightIngreso[m] * fgPct) },
+        { title: '(=) Cobranza Líquida de Obra', type: 'subtotal-in', calc: (m) => (totals.totalIngresoReal * weightIngreso[m]) * (1 - amortPct - fgPct) },
+        { title: '(-) Proveedores y Materiales', type: 'out', calc: (m) => -(totals.totalCostoReal * 0.45 * weightCosto[m]) },
+        { title: '(-) Destajos y Mano de Obra (Semanal)', type: 'out', calc: (m) => -(totals.totalCostoReal * 0.30 * weightCosto[m]) },
+        { title: '(-) Renta de Equipos y Subcontratos', type: 'out', calc: (m) => -(totals.totalCostoReal * 0.15 * weightCosto[m]) },
+        { title: '(-) Gastos Indirectos y Supervisión', type: 'out', calc: (m) => -(totals.totalCostoReal * 0.10 * weightCosto[m]) },
+        { title: '(=) Flujo Operativo Neto del Mes', type: 'neto', isNet: true },
+        { title: '(=) Saldo Final Acumulado de Tesorería', type: 'saldo', isBalance: true }
+      ];
+
+      // Precalculate Net and Balance
+      const monthlyNet = [];
+      const monthlyBalance = [];
+      let runningBalance = finParams.saldoInicial;
+
+      for (let m = 0; m < 6; m++) {
+        const cobroLiquido = (totals.totalIngresoReal * weightIngreso[m]) * (1 - amortPct - fgPct);
+        const totalEgresos = (totals.totalCostoReal * weightCosto[m]);
+        const net = cobroLiquido - totalEgresos;
+        runningBalance += net;
+        monthlyNet.push(net);
+        monthlyBalance.push(runningBalance);
+      }
+
+      rows.forEach(r => {
+        const tr = document.createElement('tr');
+        let rowHtml = `<td class="py-2.5 px-4 font-medium sticky left-0 bg-white border-r border-slate-200">${r.title}</td>`;
+        let totalRow = 0;
+
+        for (let m = 0; m < 6; m++) {
+          let val = 0;
+          if (r.isNet) {
+            val = monthlyNet[m];
+          } else if (r.isBalance) {
+            val = monthlyBalance[m];
+          } else {
+            val = r.calc(m);
+          }
+
+          if (!r.isBalance) totalRow += val;
+
+          let cellClass = 'font-mono text-right text-slate-700';
+          if (r.type === 'subtotal-in') cellClass += ' font-semibold text-blue-950 bg-blue-50/40';
+          if (r.isNet) cellClass += val >= 0 ? ' font-bold text-emerald-700 bg-emerald-50/50' : ' font-bold text-rose-700 bg-rose-50/50';
+          if (r.isBalance) cellClass += val >= 0 ? ' font-black text-purple-900 bg-purple-50/60' : ' font-black text-rose-800 bg-rose-100';
+
+          rowHtml += `<td class="py-2.5 px-3 ${cellClass}">${fmt(val)}</td>`;
+        }
+
+        const totalCellDisplay = r.isBalance ? fmt(monthlyBalance[5]) : fmt(totalRow);
+        rowHtml += `<td class="py-2.5 px-4 font-mono font-bold text-right bg-slate-100 text-slate-900 border-l border-slate-200">${totalCellDisplay}</td>`;
+        
+        tr.className = r.isBalance ? 'bg-purple-50/30 border-t-2 border-purple-300' : (r.isNet ? 'bg-slate-50 border-t border-slate-300 font-semibold' : '');
+        tr.innerHTML = rowHtml;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function updateFinancialCalculations() {
+      finParams.saldoInicial = parseFloat(document.getElementById('finSaldoInicial').value) || 0;
+      finParams.pctAmortizacion = parseFloat(document.getElementById('finPctAmortizacion').value) || 0;
+      finParams.pctFondoGarantia = parseFloat(document.getElementById('finPctFondoGarantia').value) || 0;
+      finParams.plazoCobroDias = parseInt(document.getElementById('finPlazoCobro').value) || 30;
+
+      renderKPIs();
+      renderCashFlowTable();
+      updateCashFlowChart();
+      showToast("Parámetros financieros actualizados");
+    }
+
+    function updateCharts() {
+      updateMonthlyChart();
+      updateCategoryChart();
+      updateCashFlowChart();
+      renderEstadoResultados();
+    }
+
+    function updateMonthlyChart() {
+      const ctx = document.getElementById('chartMensual').getContext('2d');
+      const totals = getTotals();
+      
+      const meses = ['Mes 1', 'Mes 2', 'Mes 3', 'Mes 4', 'Mes 5', 'Mes 6'];
+      const pptoIngDist = [0.15, 0.20, 0.25, 0.20, 0.15, 0.05];
+      const realIngDist = [0.10, 0.20, 0.25, 0.25, 0.15, 0.05];
+      const realCostDist = [0.15, 0.25, 0.25, 0.20, 0.10, 0.05];
+
+      const dataPptoIng = pptoIngDist.map(w => totals.totalIngresoPpto * w);
+      const dataRealIng = realIngDist.map(w => totals.totalIngresoReal * w);
+      const dataRealCost = realCostDist.map(w => totals.totalCostoReal * w);
+
+      if (chartMensualInstance) chartMensualInstance.destroy();
+
+      chartMensualInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: meses,
+          datasets: [
+            {
+              label: 'Ingreso Ppto ($)',
+              data: dataPptoIng,
+              backgroundColor: 'rgba(14, 165, 233, 0.45)',
+              borderColor: 'rgba(14, 165, 233, 1)',
+              borderWidth: 1,
+              borderRadius: 4
+            },
+            {
+              label: 'Ingreso Real ($)',
+              data: dataRealIng,
+              backgroundColor: 'rgba(2, 132, 199, 0.85)',
+              borderColor: 'rgba(3, 105, 161, 1)',
+              borderWidth: 1,
+              borderRadius: 4
+            },
+            {
+              label: 'Costo Real Incurrido ($)',
+              data: dataRealCost,
+              backgroundColor: 'rgba(217, 119, 6, 0.85)',
+              borderColor: 'rgba(180, 83, 9, 1)',
+              borderWidth: 1,
+              borderRadius: 4
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 12, font: { family: 'Inter', size: 11 } } },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`
+              }
+            }
+          },
+          scales: {
+            y: {
+              ticks: {
+                callback: (val) => '$' + (val / 1000).toFixed(0) + 'k',
+                font: { size: 10 }
+              },
+              grid: { color: '#f1f5f9' }
+            },
+            x: {
+              grid: { display: false },
+              ticks: { font: { size: 10 } }
+            }
+          }
+        }
+      });
+    }
+
+    function updateCategoryChart() {
+      const ctx = document.getElementById('chartCategorias').getContext('2d');
+      const cats = ['Materiales', 'Mano de Obra', 'Maquinaria', 'Subcontratos', 'Indirectos'];
+      const bgColors = ['#0284c7', '#d97706', '#8b5cf6', '#10b981', '#64748b'];
+
+      const dataValues = cats.map(cat => {
+        return partidas
+          .filter(p => p.tipo === cat)
+          .reduce((sum, p) => sum + ((p.cantReal || 0) * (p.puReal || 0)), 0);
+      });
+
+      const totalCostos = dataValues.reduce((a, b) => a + b, 0);
+
+      // Render custom legend
+      const legendContainer = document.getElementById('costDistributionLegend');
+      legendContainer.innerHTML = cats.map((cat, idx) => {
+        const val = dataValues[idx];
+        const pct = totalCostos > 0 ? ((val / totalCostos) * 100).toFixed(1) : 0;
+        return `
+          <div class="flex items-center space-x-1.5 p-1 rounded bg-slate-50 border border-slate-100">
+            <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${bgColors[idx]}"></span>
+            <span class="truncate text-slate-600 font-medium">${cat}:</span>
+            <span class="font-bold text-slate-800 ml-auto">${pct}%</span>
+          </div>
+        `;
+      }).join('');
+
+      if (chartCategoriasInstance) chartCategoriasInstance.destroy();
+
+      chartCategoriasInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: cats,
+          datasets: [{
+            data: dataValues,
+            backgroundColor: bgColors,
+            borderWidth: 2,
+            borderColor: '#ffffff'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.label}: ${fmt(ctx.parsed)}`
+              }
+            }
+          },
+          cutout: '68%'
+        }
+      });
+    }
+
+    function updateCashFlowChart() {
+      const ctx = document.getElementById('chartCashFlow').getContext('2d');
+      const totals = getTotals();
+      const meses = ['Inicio', 'Mes 1', 'Mes 2', 'Mes 3', 'Mes 4', 'Mes 5', 'Mes 6'];
+
+      const weightIngreso = [0.10, 0.20, 0.25, 0.25, 0.15, 0.05];
+      const weightCosto   = [0.15, 0.25, 0.25, 0.20, 0.10, 0.05];
+      const amortPct = finParams.pctAmortizacion / 100;
+      const fgPct = finParams.pctFondoGarantia / 100;
+
+      let saldo = finParams.saldoInicial;
+      const balances = [saldo];
+
+      for (let m = 0; m < 6; m++) {
+        const cobro = (totals.totalIngresoReal * weightIngreso[m]) * (1 - amortPct - fgPct);
+        const pago = (totals.totalCostoReal * weightCosto[m]);
+        saldo += (cobro - pago);
+        balances.push(saldo);
+      }
+
+      if (chartCashFlowInstance) chartCashFlowInstance.destroy();
+
+      chartCashFlowInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: meses,
+          datasets: [{
+            label: 'Saldo Disponible en Banco / Tesorería',
+            data: balances,
+            borderColor: '#8b5cf6',
+            backgroundColor: 'rgba(139, 92, 246, 0.12)',
+            fill: true,
+            tension: 0.35,
+            borderWidth: 2.5,
+            pointBackgroundColor: '#8b5cf6',
+            pointRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top', labels: { boxWidth: 12, font: { family: 'Inter', size: 11 } } },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`
+              }
+            }
+          },
+          scales: {
+            y: {
+              ticks: {
+                callback: (val) => '$' + (val / 1000).toFixed(0) + 'k',
+                font: { size: 10 }
+              },
+              grid: { color: '#f1f5f9' }
+            },
+            x: {
+              grid: { display: false },
+              ticks: { font: { size: 10 } }
+            }
+          }
+        }
+      });
+    }
+
+    function runSimulation() {
+      const infMat = parseFloat(document.getElementById('simMateriales').value) || 0;
+      const sobreMO = parseFloat(document.getElementById('simManoObra').value) || 0;
+      const demoraDias = parseInt(document.getElementById('simDemora').value) || 0;
+
+      document.getElementById('simMaterialesVal').textContent = `+${infMat}%`;
+      document.getElementById('simManoObraVal').textContent = `+${sobreMO}%`;
+      document.getElementById('simDemoraVal').textContent = `${demoraDias} Días`;
+
+      const totals = getTotals();
+
+      // Calculate cost increments
+      let extraMat = 0;
+      let extraMO = 0;
+
+      partidas.forEach(p => {
+        const sub = (p.cantReal || 0) * (p.puReal || 0);
+        if (p.tipo === 'Materiales') extraMat += sub * (infMat / 100);
+        if (p.tipo === 'Mano de Obra') extraMO += sub * (sobreMO / 100);
+      });
+
+      const sobrecostoTotal = extraMat + extraMO;
+      const nuevoCosto = totals.totalCostoReal + sobrecostoTotal;
+      const nuevaUtilidad = totals.totalIngresoReal - nuevoCosto;
+      const nuevoMargen = totals.totalIngresoReal > 0 ? (nuevaUtilidad / totals.totalIngresoReal) * 100 : 0;
+      const deltaMargen = nuevoMargen - totals.margenReal;
+
+      // Capital extra por demoras en cobranza
+      const cobroDiario = totals.totalIngresoReal / 180;
+      const capitalDesfase = (cobroDiario * demoraDias) + sobrecostoTotal;
+
+      document.getElementById('simMargenOriginal').textContent = `${totals.margenReal.toFixed(1)}%`;
+      document.getElementById('simMargenNuevo').textContent = `${nuevoMargen.toFixed(1)}%`;
+      const elDelta = document.getElementById('simMargenDelta');
+      elDelta.textContent = `Variación de Margen: ${deltaMargen.toFixed(1)}%`;
+      elDelta.className = deltaMargen >= 0 ? "text-xs font-semibold text-emerald-600 mt-1 block" : "text-xs font-semibold text-rose-600 mt-1 block";
+
+      document.getElementById('simCostoExtra').textContent = fmt(sobrecostoTotal);
+      document.getElementById('simCapitalRequerido').textContent = fmt(capitalDesfase);
+    }
+
+    function openModalNuevaPartida() {
+      document.getElementById('modalTitle').textContent = "Agregar Nueva Partida al Presupuesto";
+      document.getElementById('formPartida').reset();
+      document.getElementById('partidaId').value = "";
+      document.getElementById('modalPartida').classList.remove('hidden');
+    }
+
+    function closeModalPartida() {
+      document.getElementById('modalPartida').classList.add('hidden');
+    }
+
+    function editarPartida(id) {
+      const p = partidas.find(item => item.id === id);
+      if (!p) return;
+
+      document.getElementById('modalTitle').textContent = `Editar Partida: ${p.codigo}`;
+      document.getElementById('partidaId').value = p.id;
+      document.getElementById('partidaCodigo').value = p.codigo;
+      document.getElementById('partidaTipo').value = p.tipo;
+      document.getElementById('partidaConcepto').value = p.concepto;
+      document.getElementById('partidaUnidad').value = p.unidad;
+      document.getElementById('partidaCantPpto').value = p.cantPpto;
+      document.getElementById('partidaPuPpto').value = p.puPpto;
+      document.getElementById('partidaCantReal').value = p.cantReal;
+      document.getElementById('partidaPuReal').value = p.puReal;
+
+      document.getElementById('modalPartida').classList.remove('hidden');
+    }
+
+    function handleSavePartida(e) {
+      e.preventDefault();
+      const id = document.getElementById('partidaId').value;
+      const codigo = document.getElementById('partidaCodigo').value.trim();
+      const tipo = document.getElementById('partidaTipo').value;
+      const concepto = document.getElementById('partidaConcepto').value.trim();
+      const unidad = document.getElementById('partidaUnidad').value.trim();
+      const cantPpto = parseFloat(document.getElementById('partidaCantPpto').value) || 0;
+      const puPpto = parseFloat(document.getElementById('partidaPuPpto').value) || 0;
+      const cantReal = parseFloat(document.getElementById('partidaCantReal').value) || 0;
+      const puReal = parseFloat(document.getElementById('partidaPuReal').value) || 0;
+
+      if (id) {
+        // Edit
+        const idx = partidas.findIndex(p => p.id === parseInt(id));
+        if (idx !== -1) {
+          partidas[idx] = { id: parseInt(id), codigo, tipo, concepto, unidad, cantPpto, puPpto, cantReal, puReal };
+          showToast(`Partida ${codigo} actualizada`);
+        }
+      } else {
+        // Create new
+        const newId = partidas.length ? Math.max(...partidas.map(p => p.id)) + 1 : 1;
+        partidas.push({ id: newId, codigo, tipo, concepto, unidad, cantPpto, puPpto, cantReal, puReal });
+        showToast(`Nueva partida ${codigo} añadida con éxito`);
+      }
+
+      closeModalPartida();
+      recalculateAll();
+    }
+
+    function eliminarPartida(id) {
+      partidas = partidas.filter(p => p.id !== id);
+      recalculateAll();
+      showToast("Partida eliminada del presupuesto");
+    }
+
+    // Tab Navigation
+    function changeTab(tabKey) {
+      const views = ['dashboard', 'operativo', 'resultados', 'financiero', 'simulador'];
+      views.forEach(v => {
+        const el = document.getElementById(`view-${v}`);
+        if (el) el.classList.add('hidden');
+        const tabBtn = document.getElementById(`tab-${v}`);
+        if (tabBtn) {
+          tabBtn.className = "tab-btn py-3 border-b-2 font-medium flex items-center space-x-2 text-slate-400 border-transparent hover:text-slate-200 whitespace-nowrap";
+        }
+      });
+
+      const activeView = document.getElementById(`view-${tabKey}`);
+      if (activeView) activeView.classList.remove('hidden');
+      
+      const activeBtn = document.getElementById(`tab-${tabKey}`);
+      if (activeBtn) {
+        activeBtn.className = "tab-btn py-3 border-b-2 font-medium flex items-center space-x-2 text-sky-400 border-sky-500 whitespace-nowrap";
+      }
+
+      if (tabKey === 'dashboard' || tabKey === 'financiero' || tabKey === 'resultados') {
+        setTimeout(updateCharts, 50);
+      }
+    }
+
+    // Toggle dropdown de opciones de exportación
+    function toggleShareDropdown() {
+      const menu = document.getElementById('shareDropdown');
+      menu.classList.toggle('hidden');
+    }
+
+    // Cerrar menú al hacer click fuera
+    window.addEventListener('click', function(e) {
+      const btn = document.getElementById('btnShareMenu');
+      const menu = document.getElementById('shareDropdown');
+      if (btn && menu && !btn.contains(e.target) && !menu.contains(e.target)) {
+        menu.classList.add('hidden');
+      }
+    });
+
+    // GENERAR REPORTE EJECUTIVO FORMAL (VISTA INFORME CORPORATIVO)
+    function previewExecutiveReport() {
+      const menu = document.getElementById('shareDropdown');
+      if (menu) menu.classList.add('hidden');
+
+      const container = document.getElementById('executiveReportPaper');
+      container.innerHTML = generateReportHtml();
+
+      const modal = document.getElementById('modalReportePreview');
+      modal.classList.remove('hidden');
+
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function closeReportePreview() {
+      document.getElementById('modalReportePreview').classList.add('hidden');
+    }
+
+    function printExecutiveReport() {
+      window.print();
+    }
+
+    function generateReportHtml() {
+      const totals = getTotals();
+      const currentSpecialtyName = document.getElementById('specialtySelect')?.selectedOptions[0]?.text || currentSpecialty;
+      const today = new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' });
+
+      // Calculate categories summary
+      const categories = ['Materiales', 'Mano de Obra', 'Maquinaria', 'Subcontratos', 'Indirectos'];
+      let categoriesRowsHtml = '';
+      categories.forEach(cat => {
+        const items = partidas.filter(p => p.tipo === cat);
+        let ppto = 0; let real = 0;
+        items.forEach(i => {
+          ppto += (i.cantPpto || 0) * (i.puPpto || 0);
+          real += (i.cantReal || 0) * (i.puReal || 0);
+        });
+        const diff = real - ppto;
+        const diffPct = ppto > 0 ? (diff / ppto) * 100 : 0;
+        categoriesRowsHtml += `
+          <tr class="border-b border-slate-200">
+            <td class="py-2 px-3 font-semibold text-slate-800">${cat}</td>
+            <td class="py-2 px-3 text-right font-mono">${fmt(ppto)}</td>
+            <td class="py-2 px-3 text-right font-mono font-bold">${fmt(real)}</td>
+            <td class="py-2 px-3 text-right font-mono ${diff > 0 ? 'text-rose-600 font-semibold' : 'text-emerald-700 font-semibold'}">${fmt(diff)}</td>
+            <td class="py-2 px-3 text-center font-semibold ${diff <= 0 ? 'text-emerald-700' : 'text-rose-700'}">${fmtPct(diffPct)}</td>
+          </tr>
+        `;
+      });
+
+      // Top 5 partidas con mayor impacto o costo
+      const topItems = [...partidas].sort((a,b) => ((b.cantReal*b.puReal) - (a.cantReal*a.puReal))).slice(0, 8);
+      let itemsHtml = topItems.map(p => {
+        const subPpto = (p.cantPpto || 0) * (p.puPpto || 0);
+        const subReal = (p.cantReal || 0) * (p.puReal || 0);
+        const diff = subReal - subPpto;
+        return `
+          <tr class="border-b border-slate-200 text-xs">
+            <td class="py-2 px-3 font-mono font-bold text-sky-900">${p.codigo}</td>
+            <td class="py-2 px-3 font-medium text-slate-800">${p.concepto}</td>
+            <td class="py-2 px-3 text-slate-500">${p.tipo}</td>
+            <td class="py-2 px-3 text-right font-mono">${fmt(subPpto)}</td>
+            <td class="py-2 px-3 text-right font-mono font-bold text-slate-900">${fmt(subReal)}</td>
+            <td class="py-2 px-3 text-right font-mono font-semibold ${diff > 0 && p.tipo !== 'Ingreso' ? 'text-rose-600' : 'text-emerald-600'}">${fmt(diff)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      return `
+        <!-- Membrete Ejecutivo -->
+        <div class="border-b-2 border-slate-900 pb-5">
+          <div class="flex justify-between items-start">
+            <div>
+              <span class="text-xs font-bold tracking-widest text-sky-700 uppercase">Dossier Financiero de Obra &bull; MasterBuild</span>
+              <h1 class="text-2xl font-black text-slate-900 tracking-tight mt-0.5">INFORME EJECUTIVO DE CONTROL PRESUPUESTAL</h1>
+              <p class="text-xs text-slate-500 mt-1">Especialidad: <strong class="text-slate-800">${currentSpecialtyName}</strong> | Periodo: <strong>Ejercicio Fiscal ${currentYear}</strong> | Moneda: <strong>${currentCurrency}</strong></p>
+            </div>
+            <div class="text-right text-xs text-slate-500">
+              <span class="block font-semibold text-slate-800">Fecha de Emisión:</span>
+              <span>${today}</span>
+              <span class="inline-block mt-1 px-2.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">VERSIÓN AUDITABLE</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Indicadores Clave de Desempeño (KPIs) -->
+        <div class="grid grid-cols-4 gap-3">
+          <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+            <span class="text-[10px] font-bold text-slate-500 uppercase block">Facturación / Ingreso</span>
+            <div class="text-lg font-bold text-slate-900 mt-0.5">${fmt(totals.totalIngresoReal)}</div>
+            <span class="text-[10px] text-slate-500">Ppto: ${fmt(totals.totalIngresoPpto)}</span>
+          </div>
+
+          <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+            <span class="text-[10px] font-bold text-slate-500 uppercase block">Costo Total Ejecutado</span>
+            <div class="text-lg font-bold text-slate-900 mt-0.5">${fmt(totals.totalCostoReal)}</div>
+            <span class="text-[10px] text-slate-500">Ppto: ${fmt(totals.totalCostoPpto)}</span>
+          </div>
+
+          <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+            <span class="text-[10px] font-bold text-slate-500 uppercase block">Utilidad Bruta de Obra</span>
+            <div class="text-lg font-bold text-emerald-700 mt-0.5">${fmt(totals.utilidadReal)}</div>
+            <span class="text-[10px] text-slate-500">Margen: <strong>${totals.margenReal.toFixed(1)}%</strong></span>
+          </div>
+
+          <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+            <span class="text-[10px] font-bold text-slate-500 uppercase block">Fondo de Garantía Retenido</span>
+            <div class="text-lg font-bold text-purple-700 mt-0.5">${fmt(totals.totalIngresoReal * (finParams.pctFondoGarantia / 100))}</div>
+            <span class="text-[10px] text-slate-500">Retención Cliente (${finParams.pctFondoGarantia}%)</span>
+          </div>
+        </div>
+
+        <!-- Sección 1: Análisis de Desviaciones por Rubro -->
+        <div class="avoid-break space-y-2">
+          <div class="border-b border-slate-300 pb-1 flex justify-between items-baseline">
+            <h2 class="text-sm font-bold text-slate-900 uppercase tracking-wider">1. Matriz de Variaciones por Categoría de Insumo</h2>
+            <span class="text-[11px] text-slate-500">Comparativa Real vs. Presupuestado Maestro</span>
+          </div>
+          <table class="w-full text-left text-xs border-collapse border border-slate-200">
+            <thead class="bg-slate-100 text-slate-700">
+              <tr>
+                <th class="py-2 px-3">Rubro de Costo</th>
+                <th class="py-2 px-3 text-right">Presupuesto ($)</th>
+                <th class="py-2 px-3 text-right">Ejecutado Real ($)</th>
+                <th class="py-2 px-3 text-right">Variación ($)</th>
+                <th class="py-2 px-3 text-center">Variación (%)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${categoriesRowsHtml}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Sección 2: Muestreo de Partidas Principales del Contrato -->
+        <div class="avoid-break space-y-2 pt-2">
+          <div class="border-b border-slate-300 pb-1 flex justify-between items-baseline">
+            <h2 class="text-sm font-bold text-slate-900 uppercase tracking-wider">2. Desglose Operativo de Partidas Críticas</h2>
+            <span class="text-[11px] text-slate-500">Top partidas por volumen financiero de la especialidad</span>
+          </div>
+          <table class="w-full text-left text-xs border-collapse border border-slate-200">
+            <thead class="bg-slate-100 text-slate-700">
+              <tr>
+                <th class="py-2 px-3">Código</th>
+                <th class="py-2 px-3">Concepto de Obra</th>
+                <th class="py-2 px-3">Tipo</th>
+                <th class="py-2 px-3 text-right">Ppto Maestro</th>
+                <th class="py-2 px-3 text-right">Real Incurrido</th>
+                <th class="py-2 px-3 text-right">Desviación</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemsHtml}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Sección 3: Dictamen y Observaciones Técnicas -->
+        <div class="avoid-break bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs text-slate-700 space-y-1.5">
+          <strong class="font-bold text-slate-900 block text-xs">Dictamen de Control Financiero de Obra:</strong>
+          <p>
+            El margen bruto actual se ubica en <strong>${totals.margenReal.toFixed(1)}%</strong> frente a un objetivo proyectado de <strong>${totals.margenPpto.toFixed(1)}%</strong>. 
+            El flujo operativo mensual permite mantener solvencia para las nóminas de destajo semanales, siempre que las firmas de estimaciones por parte de supervisión externa no excedan los <strong>${finParams.plazoCobroDias} días</strong> estipulados en contrato.
+          </p>
+        </div>
+
+        <!-- Bloque de Firmas Formales para Aprobación -->
+        <div class="avoid-break pt-8 border-t border-slate-300 grid grid-cols-3 gap-6 text-center text-xs">
+          <div>
+            <div class="border-b border-slate-400 pb-8"></div>
+            <span class="block font-bold text-slate-800 mt-2">Ing. Residente de Obra</span>
+            <span class="text-[10px] text-slate-500">Validación de Volúmenes en Campo</span>
+          </div>
+          <div>
+            <div class="border-b border-slate-400 pb-8"></div>
+            <span class="block font-bold text-slate-800 mt-2">Gerente de Costos y FinOps</span>
+            <span class="text-[10px] text-slate-500">Conciliación Contable y P&L</span>
+          </div>
+          <div>
+            <div class="border-b border-slate-400 pb-8"></div>
+            <span class="block font-bold text-slate-800 mt-2">Director General / Contratista</span>
+            <span class="text-[10px] text-slate-500">Aprobación de Finiquito y Pagos</span>
+          </div>
+        </div>
+      `;
+    }
+
+    // EXPORTACIÓN A EXCEL FORMATEADO (.XLS con HTML estructurado)
+    function exportToStyledExcel() {
+      const menu = document.getElementById('shareDropdown');
+      if (menu) menu.classList.add('hidden');
+
+      const totals = getTotals();
+      const specialtyName = document.getElementById('specialtySelect')?.selectedOptions[0]?.text || currentSpecialty;
+      const today = new Date().toLocaleDateString('es-MX');
+
+      let tableRows = '';
+      partidas.forEach(p => {
+        const subPpto = (p.cantPpto || 0) * (p.puPpto || 0);
+        const subReal = (p.cantReal || 0) * (p.puReal || 0);
+        const diff = subReal - subPpto;
+        tableRows += `
+          <tr>
+            <td style="font-family: monospace; font-weight: bold;">${p.codigo}</td>
+            <td>${p.concepto}</td>
+            <td>${p.tipo}</td>
+            <td>${p.unidad}</td>
+            <td style="text-align: right;">${p.cantPpto}</td>
+            <td style="text-align: right; mso-number-format:'\\$#,##0.00';">$${p.puPpto.toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+            <td style="text-align: right; font-weight: bold; background-color: #f1f5f9; mso-number-format:'\\$#,##0.00';">$${subPpto.toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+            <td style="text-align: right;">${p.cantReal}</td>
+            <td style="text-align: right; mso-number-format:'\\$#,##0.00';">$${p.puReal.toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+            <td style="text-align: right; font-weight: bold; background-color: #e0f2fe; mso-number-format:'\\$#,##0.00';">$${subReal.toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+            <td style="text-align: right; font-weight: bold; color: ${diff > 0 ? '#b91c1c' : '#047857'}; mso-number-format:'\\$#,##0.00';">$${diff.toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+          </tr>
+        `;
+      });
+
+      const excelTemplate = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+          <!--[if gte mso 9]>
+          <xml>
+            <x:ExcelWorkbook>
+              <x:ExcelWorksheets>
+                <x:ExcelWorksheet>
+                  <x:Name>Presupuesto Maestro</x:Name>
+                  <x:WorksheetOptions>
+                    <x:DisplayGridlines/>
+                  </x:WorksheetOptions>
+                </x:ExcelWorksheet>
+              </x:ExcelWorksheets>
+            </x:ExcelWorkbook>
+          </xml>
+          <![endif]-->
+          <meta http-equiv="content-type" content="application/vnd.ms-excel; charset=UTF-8">
+          <style>
+            th { background-color: #0f172a; color: #ffffff; font-weight: bold; text-align: center; border: 1px solid #334155; padding: 6px; }
+            td { border: 1px solid #cbd5e1; padding: 5px; font-family: Arial, sans-serif; font-size: 11px; }
+            .header-title { font-size: 16px; font-weight: bold; color: #0284c7; }
+            .header-subtitle { font-size: 12px; color: #475569; }
+            .kpi-title { background-color: #f8fafc; font-weight: bold; border: 1px solid #94a3b8; }
+            .kpi-value { font-weight: bold; font-size: 13px; text-align: right; mso-number-format:'\\$#,##0.00'; }
+          </style>
+        </head>
+        <body>
+          <table>
+            <tr><td colspan="11" class="header-title">SISTEMA INTEGRAL DE CONTROL PRESUPUESTAL PARA CONTRATISTAS</td></tr>
+            <tr><td colspan="11" class="header-subtitle">Especialidad: ${specialtyName} | Ejercicio Fiscal: ${currentYear} | Moneda: ${currentCurrency} | Fecha: ${today}</td></tr>
+            <tr><td colspan="11"></td></tr>
+            
+            <!-- Resumen de Totales -->
+            <tr>
+              <td colspan="2" class="kpi-title">Ingreso Estimado Real:</td>
+              <td colspan="2" class="kpi-value">$${totals.totalIngresoReal.toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+              <td colspan="2" class="kpi-title">Costo Directo Real:</td>
+              <td colspan="2" class="kpi-value">$${totals.totalCostoReal.toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+              <td colspan="2" class="kpi-title">Margen Bruto de Obra:</td>
+              <td class="kpi-value" style="color: #047857;">${totals.margenReal.toFixed(1)}%</td>
+            </tr>
+            <tr><td colspan="11"></td></tr>
+
+            <!-- Tabla de Partidas -->
+            <tr>
+              <th>Código</th>
+              <th>Descripción de Concepto de Obra</th>
+              <th>Clasificación</th>
+              <th>Unidad</th>
+              <th>Cant. Ppto</th>
+              <th>P.U. Ppto</th>
+              <th>Total Ppto</th>
+              <th>Cant. Real</th>
+              <th>P.U. Real</th>
+              <th>Total Real</th>
+              <th>Variación ($)</th>
+            </tr>
+            ${tableRows}
+          </table>
+        </body>
+        </html>
+      `;
+
+      const blob = new Blob([excelTemplate], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `Presupuesto_Maestro_${currentSpecialty}_${currentYear}_${currentCurrency}.xls`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showToast("Archivo Excel descargado con moneda y año actualizados");
+    }
+
+    // Export to CSV plano
+    function exportToCSV() {
+      let csv = "Código,Tipo,Concepto,Unidad,Cant_Ppto,PU_Ppto,Total_Ppto,Cant_Real,PU_Real,Total_Real,Desviacion_$\n";
+      partidas.forEach(p => {
+        const tPpto = (p.cantPpto || 0) * (p.puPpto || 0);
+        const tReal = (p.cantReal || 0) * (p.puReal || 0);
+        const diff = tReal - tPpto;
+        csv += `"${p.codigo}","${p.tipo}","${p.concepto}","${p.unidad}",${p.cantPpto},${p.puPpto},${tPpto},${p.cantReal},${p.puReal},${tReal},${diff}\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `Presupuesto_Maestro_${currentSpecialty}_${currentYear}_${currentCurrency}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showToast("Archivo CSV descargado con éxito");
+    }
+
+    // Export to CSV plano
+    function exportToCSV() {
+      let csv = "Código,Tipo,Concepto,Unidad,Cant_Ppto,PU_Ppto,Total_Ppto,Cant_Real,PU_Real,Total_Real,Desviacion_$\n";
+      partidas.forEach(p => {
+        const tPpto = (p.cantPpto || 0) * (p.puPpto || 0);
+        const tReal = (p.cantReal || 0) * (p.puReal || 0);
+        const diff = tReal - tPpto;
+        csv += `"${p.codigo}","${p.tipo}","${p.concepto}","${p.unidad}",${p.cantPpto},${p.puPpto},${tPpto},${p.cantReal},${p.puReal},${tReal},${diff}\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `Presupuesto_Maestro_${currentSpecialty}_2026.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showToast("Archivo CSV generado y descargado");
+    }
+
+    // Notification toast
+    function showToast(msg) {
+      const toast = document.getElementById('toastNotification');
+      document.getElementById('toastMsg').textContent = msg;
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+      setTimeout(() => {
+        toast.classList.remove('translate-y-0', 'opacity-100');
+        toast.classList.add('translate-y-20', 'opacity-0');
+      }, 3000);
+    }
+
+    // Window onload initialization
+    window.onload = function () {
+      if (window.lucide) lucide.createIcons();
+      recalculateAll();
+    };
+
+    // ===== Acceso y guardado por usuario (Supabase) =====
+    const SUPABASE_URL = 'https://rncjhgojtyzmpbnzpfqx.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_xOicy1hA9xArBr9Tat2nsg_VoTx9BcO';
+    const _invited = /type=(invite|recovery)/.test(location.hash);
+    const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const DEFAULT_GIROS = ['edificacion','urbanizacion','electricidad','ventaneria','acabados','domotica'];
+    const byId = (id) => document.getElementById(id);
+    let _giros = {}, _uid = null, _ready = false, _t = null;
+
+    const _recalc = recalculateAll;
+    recalculateAll = function () { _recalc(); if (_ready) _queueSave(); };
+
+    function _queueSave() {
+      _giros[currentSpecialty] = JSON.parse(JSON.stringify(partidas));
+      byId('saveState').textContent = 'Guardando…';
+      clearTimeout(_t); _t = setTimeout(_save, 1200);
+    }
+    async function _save() {
+      const customs = [...byId('specialtySelect').options].filter(o => !DEFAULT_GIROS.includes(o.value)).map(o => ({ v: o.value, t: o.textContent }));
+      const datos = { specialty: currentSpecialty, currency: currentCurrency, year: currentYear, giros: _giros, customs };
+      const { error } = await _sb.from('presupuestos').upsert({ user_id: _uid, datos, updated_at: new Date().toISOString() });
+      byId('saveState').textContent = error ? '⚠ No se pudo guardar' : '✓ Guardado';
+    }
+    async function _load() {
+      const { data } = await _sb.from('presupuestos').select('datos').eq('user_id', _uid).maybeSingle();
+      const d = data && data.datos;
+      if (d && d.giros) {
+        _giros = d.giros;
+        const sel = byId('specialtySelect');
+        (d.customs || []).forEach(c => {
+          if (!sel.querySelector('option[value="' + c.v + '"]')) { const o = document.createElement('option'); o.value = c.v; o.textContent = c.t; sel.appendChild(o); }
+          PRESETS[c.v] = PRESETS[c.v] || _giros[c.v] || [];
+        });
+        currentSpecialty = d.specialty || 'edificacion'; currentCurrency = d.currency || 'MXN'; currentYear = d.year || currentYear;
+        sel.value = currentSpecialty; byId('currencySelect').value = currentCurrency;
+        const y = byId('yearInput'); if (y) y.value = currentYear;
+      }
+      partidas = JSON.parse(JSON.stringify(_giros[currentSpecialty] || PRESETS[currentSpecialty] || []));
+      _ready = true; recalculateAll(); byId('saveState').textContent = '';
+    }
+    _sb.auth.onAuthStateChange((ev, s) => {
+      if (ev === 'PASSWORD_RECOVERY') byId('pwModal').classList.remove('hidden');
+      if (s && s.user) {
+        if (_uid !== s.user.id) {
+          _uid = s.user.id; byId('userEmail').textContent = s.user.email;
+          byId('authScreen').classList.add('hidden'); byId('userBar').classList.remove('hidden');
+          if (_invited) byId('pwModal').classList.remove('hidden');
+          setTimeout(_load, 0);
+        }
+      } else {
+        _uid = null; _ready = false;
+        byId('authScreen').classList.remove('hidden'); byId('userBar').classList.add('hidden');
+      }
+    });
+    async function doLogin(e) {
+      e.preventDefault();
+      const { error } = await _sb.auth.signInWithPassword({ email: byId('lgEmail').value.trim(), password: byId('lgPass').value });
+      byId('lgErr').textContent = error ? 'Correo o contraseña incorrectos.' : '';
+    }
+    async function doForgot() {
+      const em = byId('lgEmail').value.trim();
+      if (!em) { byId('lgErr').textContent = 'Escribe tu correo y vuelve a pulsar este enlace.'; return; }
+      await _sb.auth.resetPasswordForEmail(em, { redirectTo: location.origin + location.pathname });
+      byId('lgErr').textContent = 'Si el correo está registrado, recibirás un enlace.';
+    }
+    async function doLogout() { await _sb.auth.signOut(); location.reload(); }
+    async function doPw(e) {
+      e.preventDefault();
+      const a = byId('pw1').value;
+      if (a !== byId('pw2').value) { byId('pwErr').textContent = 'Las contraseñas no coinciden.'; return; }
+      const { error } = await _sb.auth.updateUser({ password: a });
+      if (error) { byId('pwErr').textContent = 'No se pudo cambiar: ' + error.message; return; }
+      byId('pwModal').classList.add('hidden'); byId('pw1').value = byId('pw2').value = ''; byId('pwErr').textContent = '';
+      showToast('Contraseña actualizada');
+    }
+  </script>
+</body>
+</html>
