@@ -245,6 +245,10 @@
           <i data-lucide="sliders" class="w-4 h-4"></i>
           <span>Sensibilidad y Escenarios</span>
         </button>
+        <button onclick="changeTab('razones'); razBuild()" id="tab-razones" class="tab-btn py-3 border-b-2 font-medium flex items-center space-x-2 text-slate-400 border-transparent hover:text-slate-200 whitespace-nowrap">
+          <i data-lucide="scale" class="w-4 h-4"></i>
+          <span>Razones Financieras</span>
+        </button>
       </div>
     </div>
   </header>
@@ -763,6 +767,27 @@
 
     </div>
 
+
+    <div id="view-razones" class="hidden space-y-6">
+      <div class="bg-white rounded-xl border border-slate-200 p-5 flex flex-wrap items-end gap-4">
+        <div>
+          <h2 class="font-bold text-slate-800">Análisis por Razones Financieras</h2>
+          <p class="text-xs text-slate-500">Captura tu Balance General y Estado de Resultados. Las razones se calculan y se guardan solas.</p>
+        </div>
+        <div class="ml-auto flex items-end gap-3">
+          <label class="text-xs text-slate-500">Año a analizar<input id="razYear" type="number" onchange="razBuild()" class="block w-24 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800"></label>
+          <button onclick="razFromPpto()" class="text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg px-3 py-2" title="Copia ventas y costos reales del presupuesto del giro activo">Traer ventas y costos del presupuesto</button>
+        </div>
+      </div>
+      <div class="grid md:grid-cols-2 gap-6">
+        <div class="bg-white rounded-xl border border-slate-200 p-5"><h3 class="font-semibold text-slate-800 mb-3">Balance General</h3><div id="razBal" class="grid grid-cols-2 gap-3"></div><p id="razCheck" class="text-xs mt-3"></p></div>
+        <div class="bg-white rounded-xl border border-slate-200 p-5"><h3 class="font-semibold text-slate-800 mb-3">Estado de Resultados</h3><div id="razRes" class="grid grid-cols-2 gap-3"></div><p id="razUN" class="text-xs mt-3 text-slate-500"></p></div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+        <table class="w-full text-sm"><thead class="bg-slate-50 text-xs text-slate-500 uppercase"><tr><th class="text-left p-3">Razón</th><th class="text-right p-3">Año</th><th class="text-right p-3">Año anterior</th><th class="p-3">Semáforo</th><th class="text-left p-3">Qué mide</th></tr></thead><tbody id="razOut"></tbody></table>
+        <p class="text-[11px] text-slate-400 p-3">Los rangos del semáforo son referencias generales; interprétalos según tu giro.</p>
+      </div>
+    </div>
   </main>
 
   <!-- Modal: Capturar / Editar Partida -->
@@ -1977,7 +2002,7 @@
 
     // Tab Navigation
     function changeTab(tabKey) {
-      const views = ['dashboard', 'operativo', 'resultados', 'financiero', 'simulador'];
+      const views = ['dashboard', 'operativo', 'resultados', 'financiero', 'simulador', 'razones'];
       views.forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.classList.add('hidden');
@@ -2387,7 +2412,7 @@
     }
     async function _save() {
       const customs = [...byId('specialtySelect').options].filter(o => !DEFAULT_GIROS.includes(o.value)).map(o => ({ v: o.value, t: o.textContent }));
-      const datos = { specialty: currentSpecialty, currency: currentCurrency, year: currentYear, giros: _giros, customs };
+      const datos = { specialty: currentSpecialty, currency: currentCurrency, year: currentYear, giros: _giros, customs, razones: _raz };
       const { error } = await _sb.from('presupuestos').upsert({ user_id: _uid, datos, updated_at: new Date().toISOString() });
       byId('saveState').textContent = error ? '⚠ No se pudo guardar' : '✓ Guardado';
     }
@@ -2395,7 +2420,7 @@
       const { data } = await _sb.from('presupuestos').select('datos').eq('user_id', _uid).maybeSingle();
       const d = data && data.datos;
       if (d && d.giros) {
-        _giros = d.giros;
+        _giros = d.giros; _raz = d.razones || {};
         const sel = byId('specialtySelect');
         (d.customs || []).forEach(c => {
           if (!sel.querySelector('option[value="' + c.v + '"]')) { const o = document.createElement('option'); o.value = c.v; o.textContent = c.t; sel.appendChild(o); }
@@ -2406,7 +2431,7 @@
         const y = byId('yearInput'); if (y) y.value = currentYear;
       }
       partidas = JSON.parse(JSON.stringify(_giros[currentSpecialty] || PRESETS[currentSpecialty] || []));
-      _ready = true; recalculateAll(); byId('saveState').textContent = '';
+      _ready = true; recalculateAll(); razBuild(); byId('saveState').textContent = '';
     }
     _sb.auth.onAuthStateChange((ev, s) => {
       if (ev === 'PASSWORD_RECOVERY') byId('pwModal').classList.remove('hidden');
@@ -2442,6 +2467,72 @@
       if (error) { byId('pwErr').textContent = 'No se pudo cambiar: ' + error.message; return; }
       byId('pwModal').classList.add('hidden'); byId('pw1').value = byId('pw2').value = ''; byId('pwErr').textContent = '';
       showToast('Contraseña actualizada');
+    }
+
+    // ===== Razones financieras =====
+    let _raz = {};
+    const RAZ_BAL = [['efectivo','Efectivo y bancos'],['cxc','Clientes (por cobrar)'],['inv','Inventarios'],['otrosAC','Otros activos circulantes'],['activoFijo','Activo fijo neto'],['otrosANC','Otros activos no circ.'],['cxp','Proveedores (por pagar)'],['deudaCP','Deuda a corto plazo'],['otrosPC','Otros pasivos circ.'],['deudaLP','Deuda a largo plazo'],['capital','Capital contable']];
+    const RAZ_RES = [['ventas','Ventas / Ingresos'],['costo','Costo de ventas'],['gastosOp','Gastos de operación'],['intereses','Intereses'],['impuestos','Impuestos']];
+    const razM = (n) => Number(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 0 });
+    const razYr = () => String(byId('razYear').value || currentYear);
+    function razBase(d) {
+      const g = (k) => Number(d[k]) || 0;
+      const AC = g('efectivo') + g('cxc') + g('inv') + g('otrosAC'), AT = AC + g('activoFijo') + g('otrosANC');
+      const PC = g('cxp') + g('deudaCP') + g('otrosPC'), PT = PC + g('deudaLP'), CAP = g('capital');
+      const UB = g('ventas') - g('costo'), UAII = UB - g('gastosOp'), UN = UAII - g('intereses') - g('impuestos');
+      return { g, AC, AT, PC, PT, CAP, UB, UAII, UN };
+    }
+    const dv = (a, b) => (b ? a / b : null);
+    const RAZONES = [
+      { n: 'Razón circulante', t: 'x', f: b => dv(b.AC, b.PC), good: [1.5, 1], dir: 1, d: 'Activo circulante entre pasivo circulante: capacidad de pagar deudas de corto plazo.' },
+      { n: 'Prueba ácida', t: 'x', f: b => dv(b.AC - b.g('inv'), b.PC), good: [1, 0.7], dir: 1, d: 'Liquidez sin depender de vender inventarios.' },
+      { n: 'Capital de trabajo', t: '$', f: b => b.AC - b.PC, good: [1, 0], dir: 1, d: 'Recursos de corto plazo que quedan tras pagar el pasivo circulante.' },
+      { n: 'Endeudamiento', t: '%', f: b => dv(b.PT, b.AT), good: [0.5, 0.7], dir: -1, d: 'Proporción de los activos financiada con deuda.' },
+      { n: 'Deuda / Capital', t: 'x', f: b => dv(b.PT, b.CAP), good: [1, 2], dir: -1, d: 'Cuánto debes por cada peso de capital propio.' },
+      { n: 'Cobertura de intereses', t: 'x', f: b => dv(b.UAII, b.g('intereses')), good: [3, 1.5], dir: 1, d: 'Veces que la utilidad operativa cubre los intereses.' },
+      { n: 'Días de cobro', t: 'd', f: b => { const r = dv(b.g('cxc'), b.g('ventas')); return r == null ? null : r * 365; }, good: [45, 75], dir: -1, d: 'Días promedio que tardas en cobrar a tus clientes.' },
+      { n: 'Días de pago', t: 'd', f: b => { const r = dv(b.g('cxp'), b.g('costo')); return r == null ? null : r * 365; }, d: 'Días promedio que tardas en pagar a proveedores (informativo).' },
+      { n: 'Días de inventario', t: 'd', f: b => { const r = dv(b.g('inv'), b.g('costo')); return r == null ? null : r * 365; }, good: [60, 120], dir: -1, d: 'Días que permanecen los materiales antes de usarse o venderse.' },
+      { n: 'Margen bruto', t: '%', f: b => dv(b.UB, b.g('ventas')), good: [0.25, 0.15], dir: 1, d: 'Utilidad después del costo de ventas, sobre ventas.' },
+      { n: 'Margen neto', t: '%', f: b => dv(b.UN, b.g('ventas')), good: [0.08, 0.03], dir: 1, d: 'Utilidad final por cada peso vendido.' },
+      { n: 'ROA (rendimiento del activo)', t: '%', f: b => dv(b.UN, b.AT), good: [0.08, 0.03], dir: 1, d: 'Utilidad generada por cada peso invertido en activos.' },
+      { n: 'ROE (rendimiento del capital)', t: '%', f: b => dv(b.UN, b.CAP), good: [0.15, 0.08], dir: 1, d: 'Rendimiento para el capital de los dueños.' }
+    ];
+    function razTxt(v, t) {
+      if (v == null || !isFinite(v)) return '—';
+      return t === 'x' ? v.toFixed(2) + 'x' : t === '%' ? (v * 100).toFixed(1) + '%' : t === 'd' ? Math.round(v) + ' días' : '$ ' + razM(v);
+    }
+    function razTone(v, r) {
+      if (v == null || !isFinite(v) || !r.good) return ['neutral', 'Referencia', 'bg-slate-100 text-slate-600 border-slate-200'];
+      const ok = r.dir === 1 ? (v >= r.good[0] ? 2 : v >= r.good[1] ? 1 : 0) : (v <= r.good[0] ? 2 : v <= r.good[1] ? 1 : 0);
+      return [['r', 'Atención', 'bg-red-50 text-red-700 border-red-200'], ['a', 'Vigilar', 'bg-amber-50 text-amber-800 border-amber-200'], ['v', 'Sano', 'bg-emerald-50 text-emerald-700 border-emerald-200']][ok];
+    }
+    function razBuild() {
+      const y = byId('razYear'); if (!y) return;
+      if (!y.value) y.value = currentYear;
+      const d = _raz[razYr()] || {};
+      const box = (arr, id) => { byId(id).innerHTML = arr.map(([k, l]) => `<label class="text-xs text-slate-500">${l}<input type="number" step="any" value="${d[k] ?? ''}" oninput="razSet('${k}',this.value)" class="block w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800 mt-0.5"></label>`).join(''); };
+      box(RAZ_BAL, 'razBal'); box(RAZ_RES, 'razRes'); razRender();
+    }
+    function razSet(k, v) {
+      const y = razYr(); _raz[y] = _raz[y] || {}; _raz[y][k] = v === '' ? '' : Number(v);
+      razRender(); if (_ready) _queueSave();
+    }
+    function razFromPpto() {
+      const t = getTotals(), y = razYr(); _raz[y] = _raz[y] || {};
+      _raz[y].ventas = Math.round(t.totalIngresoReal); _raz[y].costo = Math.round(t.totalCostoReal);
+      razBuild(); if (_ready) _queueSave(); showToast('Ventas y costos reales copiados del presupuesto');
+    }
+    function razRender() {
+      const y = Number(razYr()), cur = razBase(_raz[y] || {}), prevD = _raz[y - 1], prev = prevD ? razBase(prevD) : null;
+      const diff = cur.AT - (cur.PT + cur.CAP), chk = byId('razCheck');
+      chk.className = 'text-xs mt-3 ' + (cur.AT || cur.PT || cur.CAP ? (Math.abs(diff) > 1 ? 'text-amber-600' : 'text-emerald-600') : 'text-slate-400');
+      chk.textContent = !(cur.AT || cur.PT || cur.CAP) ? 'Captura tu balance para comenzar.' : Math.abs(diff) > 1 ? `El balance no cuadra: diferencia de $ ${razM(diff)} (activos − pasivos − capital).` : 'Balance cuadrado ✓';
+      byId('razUN').textContent = `Utilidad bruta: $ ${razM(cur.UB)} · Utilidad operativa: $ ${razM(cur.UAII)} · Utilidad neta: $ ${razM(cur.UN)}`;
+      byId('razOut').innerHTML = RAZONES.map(r => {
+        const v = r.f(cur), pv = prev ? r.f(prev) : null, [, lbl, cls] = razTone(v, r);
+        return `<tr class="border-t border-slate-100"><td class="p-3 font-medium text-slate-800">${r.n}</td><td class="p-3 text-right font-semibold text-slate-800">${razTxt(v, r.t)}</td><td class="p-3 text-right text-slate-400">${prev ? razTxt(pv, r.t) : '—'}</td><td class="p-3 text-center"><span class="text-[11px] px-2 py-0.5 rounded-full border ${cls}">${lbl}</span></td><td class="p-3 text-xs text-slate-500">${r.d}</td></tr>`;
+      }).join('');
     }
   </script>
 </body>
