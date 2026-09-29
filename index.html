@@ -83,6 +83,7 @@
     }
   </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col">
 <div id="authScreen" class="fixed inset-0 z-[100] bg-slate-900 flex items-center justify-center p-4 no-print">
@@ -769,6 +770,7 @@
 
 
     <div id="view-razones" class="hidden space-y-6">
+      <div id="razPrev" class="hidden bg-white rounded-xl border-2 border-emerald-300 p-5"></div>
       <div class="bg-white rounded-xl border border-slate-200 p-5 flex flex-wrap items-end gap-4">
         <div>
           <h2 class="font-bold text-slate-800">Análisis por Razones Financieras</h2>
@@ -777,6 +779,9 @@
         <div class="ml-auto flex items-end gap-3">
           <label class="text-xs text-slate-500">Año a analizar<input id="razYear" type="number" onchange="razBuild()" class="block w-24 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800"></label>
           <button onclick="razFromPpto()" class="text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg px-3 py-2" title="Copia ventas y costos reales del presupuesto del giro activo">Traer ventas y costos del presupuesto</button>
+          <button onclick="razTemplate()" class="text-xs bg-slate-700 hover:bg-slate-800 text-white rounded-lg px-3 py-2">Descargar plantilla Excel</button>
+          <button onclick="byId('razFile').click()" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-2">Subir Excel</button>
+          <input id="razFile" type="file" accept=".xlsx,.xls,.csv" class="hidden" onchange="razLoadFile(this)">
         </div>
       </div>
       <div class="grid md:grid-cols-2 gap-6">
@@ -2533,6 +2538,93 @@
         const v = r.f(cur), pv = prev ? r.f(prev) : null, [, lbl, cls] = razTone(v, r);
         return `<tr class="border-t border-slate-100"><td class="p-3 font-medium text-slate-800">${r.n}</td><td class="p-3 text-right font-semibold text-slate-800">${razTxt(v, r.t)}</td><td class="p-3 text-right text-slate-400">${prev ? razTxt(pv, r.t) : '—'}</td><td class="p-3 text-center"><span class="text-[11px] px-2 py-0.5 rounded-full border ${cls}">${lbl}</span></td><td class="p-3 text-xs text-slate-500">${r.d}</td></tr>`;
       }).join('');
+    }
+
+    // ===== Excel razones =====
+    const RAZ_ALIAS = [
+      ['otrosANC', ['otros activos no circ', 'otros activos no corr', 'otros activos fijos']],
+      ['otrosAC', ['otros activos circ', 'otros activos corr']],
+      ['otrosPC', ['otros pasivos circ', 'otros pasivos a corto', 'otros pasivos corr', 'impuestos por pagar']],
+      ['deudaCP', ['deuda a corto', 'prestamos a corto', 'pasivo financiero a corto', 'deuda corto']],
+      ['deudaLP', ['deuda a largo', 'prestamos a largo', 'pasivo a largo', 'deuda largo']],
+      ['activoFijo', ['activo fijo', 'activos fijos', 'propiedad planta', 'inmuebles']],
+      ['cxp', ['proveedores', 'cuentas por pagar', 'acreedores']],
+      ['cxc', ['clientes', 'cuentas por cobrar', 'deudores']],
+      ['inv', ['inventario']],
+      ['efectivo', ['efectivo', 'bancos', 'caja']],
+      ['capital', ['capital contable', 'capital social', 'patrimonio']],
+      ['costo', ['costo de ventas', 'costo de venta', 'costo de lo vendido', 'costo de produccion']],
+      ['gastosOp', ['gastos de operacion', 'gastos operativos', 'gastos de administracion', 'gastos generales']],
+      ['intereses', ['intereses', 'gastos financieros']],
+      ['impuestos', ['impuestos', 'isr']],
+      ['ventas', ['ventas', 'ingresos']]
+    ];
+    const razNorm = (s) => String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+    function razNum(c) {
+      if (typeof c === 'number' && isFinite(c)) return c;
+      if (typeof c !== 'string') return null;
+      let t = c.trim(); if (!/^[\s$()\-+.,\d]+$/.test(t) || !/\d/.test(t)) return null;
+      const neg = /^\(.*\)$/.test(t) || /^-/.test(t);
+      t = t.replace(/[^\d.,]/g, '').replace(/,/g, '');
+      const n = parseFloat(t); return isNaN(n) ? null : (neg ? -n : n);
+    }
+    function razMatch(label) {
+      const l = razNorm(label);
+      if (!l || /^(total|suma|utilidad|perdida)/.test(l) || /ingresos? financ|otros ingresos/.test(l)) return null;
+      for (const [k, al] of RAZ_ALIAS) if (al.some(a => l.includes(a))) return k;
+      return null;
+    }
+    function razParseRows(rows, selYear, out) {
+      let yearCols = {};
+      rows.forEach(row => {
+        if (!row) return;
+        const li = row.findIndex(c => typeof c === 'string' && razNorm(c));
+        const key = li >= 0 ? razMatch(row[li]) : null;
+        if (!key) {
+          const yc = {};
+          row.forEach((c, i) => {
+            const m = typeof c === 'number' ? (Number.isInteger(c) && c >= 1990 && c <= 2100 ? c : null) : (typeof c === 'string' && /^\s*((19|20)\d{2})\s*$/.test(c) ? Number(c) : null);
+            if (m) yc[i] = m;
+          });
+          if (Object.keys(yc).length) yearCols = yc;
+          return;
+        }
+        const put = (y, v) => { if (v == null) return; if (['costo', 'gastosOp', 'intereses', 'impuestos', 'cxp', 'deudaCP', 'deudaLP', 'otrosPC'].includes(key)) v = Math.abs(v); out[y] = out[y] || {}; out[y][key] = (out[y][key] || 0) + v; };
+        if (Object.keys(yearCols).length) { Object.entries(yearCols).forEach(([i, y]) => put(y, razNum(row[i]))); }
+        else { const c = row.map((c, i) => i > li ? razNum(c) : null).find(v => v != null); put(selYear, c); }
+      });
+      return out;
+    }
+    async function razLoadFile(inp) {
+      const f = inp.files[0]; inp.value = ''; if (!f) return;
+      try {
+        const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' }), out = {};
+        wb.SheetNames.forEach(n => razParseRows(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, raw: true }), Number(razYr()), out));
+        razPreview(out);
+      } catch (e) { showToast('No se pudo leer el archivo. Revisa que sea un Excel válido.'); }
+    }
+    let _razPrev = null;
+    function razPreview(out) {
+      const box = byId('razPrev'), years = Object.keys(out).sort();
+      if (!years.length) { box.classList.remove('hidden'); box.innerHTML = '<p class="text-sm text-amber-700">No encontré conceptos conocidos en el archivo. Usa la plantilla Excel o revisa que los nombres de las cuentas estén en la primera columna.</p><button onclick="byId(\'razPrev\').classList.add(\'hidden\')" class="mt-3 text-sm text-slate-500 underline">Cerrar</button>'; return; }
+      _razPrev = out;
+      const all = [...RAZ_BAL, ...RAZ_RES];
+      const rows = all.map(([k, l]) => `<tr class="border-t border-slate-100"><td class="p-2 text-slate-700">${l}</td>${years.map(y => `<td class="p-2 text-right ${out[y][k] == null ? 'text-slate-300' : 'text-slate-800 font-medium'}">${out[y][k] == null ? '—' : razM(out[y][k])}</td>`).join('')}</tr>`).join('');
+      box.classList.remove('hidden');
+      box.innerHTML = `<h3 class="font-semibold text-slate-800">Vista previa de lo que leí del archivo</h3><p class="text-xs text-slate-500 mb-3">Revisa que los importes sean correctos. Al aplicar se llenan los campos y podrás corregirlos a mano. Lo que aparece con — no se encontró.</p><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-xs text-slate-500"><tr><th class="text-left p-2">Concepto</th>${years.map(y => `<th class="text-right p-2">${y}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div><div class="flex gap-3 mt-4"><button onclick="razApply()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg px-4 py-2">Aplicar a mis datos</button><button onclick="byId('razPrev').classList.add('hidden')" class="text-sm text-slate-500 hover:text-slate-800 px-3">Cancelar</button></div>`;
+      box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    function razApply() {
+      Object.entries(_razPrev || {}).forEach(([y, d]) => { _raz[y] = Object.assign(_raz[y] || {}, d); });
+      byId('razPrev').classList.add('hidden'); razBuild(); if (_ready) _queueSave();
+      showToast('Datos del Excel aplicados. Revísalos y corrige si hace falta.');
+    }
+    function razTemplate() {
+      const y = Number(razYr());
+      const aoa = [['Concepto', y, y - 1], ['BALANCE GENERAL', null, null], ...RAZ_BAL.map(([, l]) => [l, null, null]), ['ESTADO DE RESULTADOS', null, null], ...RAZ_RES.map(([, l]) => [l, null, null])];
+      const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [{ wch: 34 }, { wch: 16 }, { wch: 16 }];
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Estados financieros');
+      XLSX.writeFile(wb, 'plantilla-razones-financieras.xlsx');
     }
   </script>
 </body>
