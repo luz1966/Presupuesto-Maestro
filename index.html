@@ -611,7 +611,7 @@
           <div class="ml-auto flex flex-wrap items-end gap-3">
             <label class="text-xs text-slate-500">Plazo de cobranza (días)<input id="fpPlazo" type="number" min="0" step="1" oninput="fpSet('plazo',this.value)" class="block w-28 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800"></label>
             <label class="text-xs text-slate-500">Mes del periodo 1<select id="fpInicio" onchange="fpSet('inicio',this.value)" class="block w-28 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800"></select></label>
-            <label class="text-xs text-slate-500">Saldo inicial<input id="fpSaldo" type="number" step="any" oninput="fpSet('saldo',this.value)" class="block w-28 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800"></label>
+            <label class="text-xs text-slate-500">Saldo inicial<input id="fpSaldo" type="text" inputmode="decimal" autocomplete="off" oninput="numFmt(this);fpSet('saldo',numVal(this.value))" class="block w-28 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800"></label>
             <button onclick="finExport()" class="text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg px-3 py-2">Descargar Excel (formato)</button>
           </div>
         </div>
@@ -2556,7 +2556,7 @@
       const y = byId('razYear'); if (!y) return;
       if (!y.value) y.value = currentYear;
       const d = _raz[razYr()] || {};
-      const box = (arr, id) => { byId(id).innerHTML = arr.map(([k, l]) => `<label class="text-xs text-slate-500">${l}<input type="number" step="any" value="${d[k] ?? ''}" oninput="razSet('${k}',this.value)" class="block w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800 mt-0.5"></label>`).join(''); };
+      const box = (arr, id) => { byId(id).innerHTML = arr.map(([k, l]) => `<label class="text-xs text-slate-500">${l}<input type="text" inputmode="decimal" autocomplete="off" value="${numShow(d[k])}" oninput="numFmt(this);razSet('${k}',numVal(this.value))" class="block w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800 mt-0.5"></label>`).join(''); };
       box(RAZ_BAL, 'razBal'); box(RAZ_RES, 'razRes'); razRender();
     }
     function razSet(k, v) {
@@ -2771,7 +2771,7 @@
     }
     function finBuild() {
       if (!byId('fpPlazo')) return;
-      byId('fpPlazo').value = _fp.plazo; byId('fpSaldo').value = _fp.saldo;
+      byId('fpPlazo').value = _fp.plazo; byId('fpSaldo').value = numShow(_fp.saldo);
       byId('fpInicio').innerHTML = MESES.map((m, i) => `<option value="${i}" ${i === _fp.inicio ? 'selected' : ''}>${m}</option>`).join('');
       finRender();
     }
@@ -2857,6 +2857,20 @@
       const { data, error } = await _sb.from('versiones').select('created_at').order('created_at', { ascending: false }).limit(1);
       if (error) return;
       if (!data.length || Date.now() - new Date(data[0].created_at) > 7 * 864e5) setTimeout(() => showToast('Recuerda guardar una versión de tu presupuesto: botón Versiones, abajo a la izquierda.'), 1500);
+    }
+
+    // ===== Formato de números con comas en los campos de captura =====
+    function numShow(n) { return (n === '' || n == null || isNaN(n)) ? '' : Number(n).toLocaleString('es-MX', { maximumFractionDigits: 10 }); }
+    function numVal(s) { const n = parseFloat(String(s).replace(/,/g, '')); return isNaN(n) ? '' : n; }
+    function numFmt(el) {
+      const before = el.value, pos = el.selectionStart == null ? before.length : el.selectionStart;
+      let v = before.replace(/[^\d.\-]/g, ''); const neg = v.startsWith('-'); v = v.replace(/-/g, '');
+      const i = v.indexOf('.'); let ent = i >= 0 ? v.slice(0, i) : v; const dec = i >= 0 ? v.slice(i + 1).replace(/\./g, '') : null;
+      ent = ent.replace(/^0+(?=\d)/, '');
+      const f = (neg ? '-' : '') + ent.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (dec !== null ? '.' + dec : '');
+      const sig = before.slice(0, pos).replace(/[^\d.\-]/g, '').length;
+      el.value = f; let n = 0, p = 0; while (p < f.length && n < sig) { if (/[\d.\-]/.test(f[p])) n++; p++; }
+      try { el.setSelectionRange(p, p); } catch (e) { }
     }
   </script>
 </body>
