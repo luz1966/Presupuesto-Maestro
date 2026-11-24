@@ -114,8 +114,18 @@
     </div>
   </form>
 </div>
+<div id="verModal" class="hidden fixed inset-0 z-[105] bg-slate-900/80 flex items-center justify-center p-4 no-print">
+  <div class="w-full max-w-lg bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-2xl">
+    <div class="flex items-start justify-between"><p class="font-bold text-white">Versiones de tu presupuesto</p><button onclick="byId('verModal').classList.add('hidden')" class="text-slate-400 hover:text-white text-xl leading-none">×</button></div>
+    <p class="text-xs text-slate-400 mt-1 mb-4">Tu información se guarda sola, pero solo conserva el último cambio. Guarda una versión antes de cambios importantes o al cerrar una etapa, para poder recuperarla después.</p>
+    <div class="flex gap-2"><input id="verName" maxlength="80" placeholder="Nombre (opcional), ej. Cierre septiembre" class="flex-1 bg-slate-900 border border-slate-700 text-slate-100 text-sm rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-sky-500"><button onclick="verSave()" class="bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold rounded-lg px-4 py-2 whitespace-nowrap">Guardar versión</button></div>
+    <div id="verList" class="mt-4 max-h-72 overflow-y-auto space-y-2"></div>
+    <p class="text-[11px] text-slate-500 mt-3">Al restaurar una versión se reemplazan tus datos actuales; antes se guarda una copia automática de ellos.</p>
+  </div>
+</div>
 <div id="userBar" class="hidden no-print fixed bottom-3 left-3 z-50 bg-slate-900/95 text-slate-300 text-[11px] border border-slate-700 rounded-full px-4 py-1.5 shadow-lg flex items-center space-x-3">
   <span id="userEmail"></span><span id="saveState" class="text-emerald-400"></span>
+  <button onclick="verOpen()" class="text-sky-300 hover:text-white font-semibold">💾 Versiones</button>
   <button onclick="byId('pwModal').classList.remove('hidden')" class="hover:text-white underline">Contraseña</button>
   <button onclick="doLogout()" class="hover:text-white underline">Salir</button>
 </div>
@@ -2463,7 +2473,7 @@
         const y = byId('yearInput'); if (y) y.value = currentYear;
       }
       partidas = JSON.parse(JSON.stringify(_giros[currentSpecialty] || PRESETS[currentSpecialty] || []));
-      _ready = true; recalculateAll(); razBuild(); finBuild(); byId('saveState').textContent = '';
+      _ready = true; recalculateAll(); razBuild(); finBuild(); verRemind(); byId('saveState').textContent = '';
     }
     _sb.auth.onAuthStateChange((ev, s) => {
       if (ev === 'PASSWORD_RECOVERY') byId('pwModal').classList.remove('hidden');
@@ -2794,6 +2804,56 @@
         XLSX.utils.book_append_sheet(wb, ws, n);
       });
       XLSX.writeFile(wb, 'presupuesto-financiero.xlsx');
+    }
+
+    // ===== Versiones =====
+    const verEsc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const verFecha = (d) => new Date(d).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' });
+    function _snap() {
+      _giros[currentSpecialty] = JSON.parse(JSON.stringify(partidas));
+      const customs = [...byId('specialtySelect').options].filter(o => !DEFAULT_GIROS.includes(o.value)).map(o => ({ v: o.value, t: o.textContent }));
+      return JSON.parse(JSON.stringify({ specialty: currentSpecialty, currency: currentCurrency, year: currentYear, giros: _giros, customs, razones: _raz, fin: _fp }));
+    }
+    function _apply(d) {
+      _giros = d.giros || {}; _raz = d.razones || {}; _fp = Object.assign({ plazo: 30, inicio: 0, saldo: 0, nombre: '' }, d.fin || {});
+      const sel = byId('specialtySelect');
+      [...sel.options].filter(o => !DEFAULT_GIROS.includes(o.value)).forEach(o => o.remove());
+      (d.customs || []).forEach(c => { const o = document.createElement('option'); o.value = c.v; o.textContent = c.t; sel.appendChild(o); PRESETS[c.v] = _giros[c.v] || PRESETS[c.v] || []; });
+      currentSpecialty = d.specialty || 'edificacion'; currentCurrency = d.currency || 'MXN'; currentYear = d.year || currentYear;
+      sel.value = currentSpecialty; byId('currencySelect').value = currentCurrency; byId('yearInput').value = currentYear;
+      partidas = JSON.parse(JSON.stringify(_giros[currentSpecialty] || PRESETS[currentSpecialty] || []));
+      finParams.plazoCobroDias = _fp.plazo; recalculateAll(); razBuild(); finBuild();
+    }
+    function verOpen() { byId('verModal').classList.remove('hidden'); verList(); }
+    async function verList() {
+      const box = byId('verList'); box.innerHTML = '<p class="text-xs text-slate-400">Cargando…</p>';
+      const { data, error } = await _sb.from('versiones').select('id,nombre,created_at').order('created_at', { ascending: false }).limit(50);
+      if (error) { box.innerHTML = '<p class="text-xs text-amber-400">No se pudieron cargar las versiones. Avisa al administrador de la plataforma.</p>'; return; }
+      box.innerHTML = data.length ? data.map(v => `<div class="flex items-center justify-between gap-2 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2"><div class="min-w-0"><p class="text-sm text-slate-100 truncate">${verEsc(v.nombre)}</p><p class="text-[11px] text-slate-500">${verFecha(v.created_at)}</p></div><div class="flex gap-3 text-xs whitespace-nowrap"><button onclick="verRestore('${v.id}')" class="text-sky-400 hover:text-sky-300">Restaurar</button><button onclick="verDelete('${v.id}')" class="text-slate-500 hover:text-red-400">Eliminar</button></div></div>`).join('') : '<p class="text-xs text-slate-400">Aún no has guardado versiones.</p>';
+    }
+    async function verSave(auto) {
+      const inp = byId('verName'), nombre = (typeof auto === 'string' && auto) || inp.value.trim() || 'Versión ' + verFecha(new Date());
+      const { error } = await _sb.from('versiones').insert({ user_id: _uid, nombre, datos: _snap() });
+      if (error) { showToast('No se pudo guardar la versión'); return false; }
+      if (typeof auto !== 'string') { inp.value = ''; showToast('Versión guardada'); verList(); }
+      return true;
+    }
+    async function verRestore(id) {
+      if (!confirm('Se reemplazarán tus datos actuales por esta versión. Antes se guardará una copia automática de tus datos actuales. ¿Continuar?')) return;
+      const { data, error } = await _sb.from('versiones').select('datos').eq('id', id).single();
+      if (error) { showToast('No se pudo leer la versión'); return; }
+      if (!(await verSave('Respaldo automático antes de restaurar · ' + verFecha(new Date())))) return;
+      _apply(data.datos); byId('verModal').classList.add('hidden'); showToast('Versión restaurada');
+    }
+    async function verDelete(id) {
+      if (!confirm('¿Eliminar esta versión? No se puede recuperar.')) return;
+      const { error } = await _sb.from('versiones').delete().eq('id', id);
+      if (error) { showToast('No se pudo eliminar'); return; } verList();
+    }
+    async function verRemind() {
+      const { data, error } = await _sb.from('versiones').select('created_at').order('created_at', { ascending: false }).limit(1);
+      if (error) return;
+      if (!data.length || Date.now() - new Date(data[0].created_at) > 7 * 864e5) setTimeout(() => showToast('Recuerda guardar una versión de tu presupuesto: botón Versiones, abajo a la izquierda.'), 1500);
     }
   </script>
 </body>
