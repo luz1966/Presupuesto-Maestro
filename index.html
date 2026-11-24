@@ -422,6 +422,7 @@
 
     <!-- TAB 2: PRESUPUESTO OPERATIVO -->
     <div id="view-operativo" class="hidden space-y-6">
+      <div id="opPrev" class="hidden bg-white rounded-xl border-2 border-emerald-300 p-5"></div>
       
       <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -432,6 +433,8 @@
           <p class="text-xs text-slate-500">Estimación de ingresos, costos directos (materiales, destajos, maquinaria, subcontratos) e indirectos.</p>
         </div>
         <div class="flex items-center space-x-2">
+          <button onclick="byId('opFile').click()" class="px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-500 transition" title="Carga tu formato de presupuesto operativo en Excel">Subir Excel</button>
+          <input id="opFile" type="file" accept=".xlsx,.xls" class="hidden" onchange="opLoadFile(this)">
           <button onclick="openModalNuevaPartida()" class="px-3 py-2 bg-sky-600 text-white rounded-lg text-xs font-semibold hover:bg-sky-500 transition flex items-center space-x-1 shadow-sm">
             <i data-lucide="plus" class="w-4 h-4"></i>
             <span>Agregar Partida</span>
@@ -1985,7 +1988,7 @@
         // Edit
         const idx = partidas.findIndex(p => p.id === parseInt(id));
         if (idx !== -1) {
-          partidas[idx] = { id: parseInt(id), codigo, tipo, concepto, unidad, cantPpto, puPpto, cantReal, puReal };
+          partidas[idx] = Object.assign({}, partidas[idx], { id: parseInt(id), codigo, tipo, concepto, unidad, cantPpto, puPpto, cantReal, puReal });
           showToast(`Partida ${codigo} actualizada`);
         }
       } else {
@@ -2625,6 +2628,73 @@
       const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [{ wch: 34 }, { wch: 16 }, { wch: 16 }];
       const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Estados financieros');
       XLSX.writeFile(wb, 'plantilla-razones-financieras.xlsx');
+    }
+
+    // ===== Excel presupuesto operativo =====
+    const OP_SHEETS = [['ingresos proyectados', 'ingresos', 'Ingreso', 'ING'], ['costos directos', 'directos', null, 'CD'], ['costos indirectos', 'indirectos', 'Indirectos', 'CI'], ['gastos financieros', 'financieros', 'Indirectos', 'GF'], ['imprevistos', 'imprevistos', 'Indirectos', 'IMP'], ['comercializacion', 'comercializacion', 'Indirectos', 'COM']];
+    const OP_CAT = { ingresos: 'Ingresos proyectados', directos: 'Costos directos', indirectos: 'Costos indirectos', financieros: 'Gastos financieros', imprevistos: 'Imprevistos y contingencias', comercializacion: 'Comercialización y ventas' };
+    const opTipoDirecto = (c) => { const l = razNorm(c); return /mano de obra|destajo|jornal/.test(l) ? 'Mano de Obra' : /maquinaria|equipo/.test(l) ? 'Maquinaria' : /subcontrat/.test(l) ? 'Subcontratos' : 'Materiales'; };
+    function opParseSheet(rows, def) {
+      const cols = []; (rows[0] || []).forEach((c, i) => { if (typeof c === 'number' && Number.isInteger(c) && c >= 0 && c <= 60) cols.push(i); });
+      const out = [];
+      rows.slice(1).forEach(r => {
+        if (!r || typeof r[0] !== 'string' || !r[0].trim() || /^total/.test(razNorm(r[0]))) return;
+        const meses = cols.map(i => Math.round((razNum(r[i]) || 0) * 100) / 100), total = meses.reduce((a, b) => a + b, 0);
+        out.push({ cat: def[1], tipo: def[2] || opTipoDirecto(r[0]), concepto: r[0].trim(), meses, total, pref: def[3] });
+      });
+      return out;
+    }
+    function opParseMeta(rows, meta) {
+      rows.forEach(r => (r || []).forEach((c, i) => {
+        if (typeof c !== 'string') return; const l = razNorm(c), v = r[i + 1];
+        if (/^ano base/.test(l) && razNum(v)) meta.anio = razNum(v);
+        if (/^numeros en/.test(l) && v) meta.mon = /dolar|usd/.test(razNorm(v)) ? 'USD' : /euro/.test(razNorm(v)) ? 'EUR' : 'MXN';
+        if (/^proyecto/.test(l) && v) meta.nombre = String(v);
+      }));
+    }
+    let _opPrev = null;
+    async function opLoadFile(inp) {
+      const f = inp.files[0]; inp.value = ''; if (!f) return;
+      try {
+        const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' }), items = [], meta = {};
+        wb.SheetNames.forEach(n => {
+          const ln = razNorm(n), rows = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, raw: true });
+          if (ln.includes('resumen')) return opParseMeta(rows, meta);
+          const def = OP_SHEETS.find(d => ln.includes(d[0])); if (def) items.push(...opParseSheet(rows, def));
+        });
+        opPreview(items, meta);
+      } catch (e) { showToast('No se pudo leer el archivo. Revisa que sea tu formato de presupuesto operativo en Excel.'); }
+    }
+    function opPreview(items, meta) {
+      const box = byId('opPrev'); box.classList.remove('hidden');
+      const use = items.filter(i => i.total !== 0), omit = items.length - use.length;
+      if (!use.length) { box.innerHTML = '<p class="text-sm text-amber-700">No encontré conceptos con importes. Verifica que el archivo tenga las hojas del formato (Ingresos Proyectados, Costos Directos, etc.).</p><button onclick="byId(\'opPrev\').classList.add(\'hidden\')" class="mt-3 text-sm text-slate-500 underline">Cerrar</button>'; return; }
+      _opPrev = { items, meta };
+      const tot = (k) => use.filter(i => i.cat === k).reduce((a, i) => a + i.total, 0);
+      const rows = use.map(i => `<tr class="border-t border-slate-100"><td class="p-2 text-xs text-slate-500">${OP_CAT[i.cat]}</td><td class="p-2 text-slate-800">${i.concepto}</td><td class="p-2 text-xs text-slate-500">${i.tipo}</td><td class="p-2 text-right font-medium text-slate-800">${razM(i.total)}</td></tr>`).join('');
+      box.innerHTML = `<h3 class="font-semibold text-slate-800">Vista previa del Excel</h3>
+        <p class="text-xs text-slate-500 mb-3">${meta.nombre ? 'Proyecto: ' + meta.nombre + ' · ' : ''}${meta.anio ? 'Año base ' + meta.anio + ' · ' : ''}${meta.mon || 'MXN'} · ${use.length} conceptos${omit ? ' (' + omit + ' sin importes omitidos)' : ''}. Cada concepto pasa a ser una partida con su total como presupuestado; el real queda en cero para capturarlo después.</p>
+        <div class="overflow-x-auto max-h-72 overflow-y-auto"><table class="w-full text-sm"><thead class="text-xs text-slate-500"><tr><th class="text-left p-2">Categoría</th><th class="text-left p-2">Concepto</th><th class="text-left p-2">Tipo</th><th class="text-right p-2">Total presupuestado</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="flex flex-wrap items-center gap-4 mt-4 text-sm text-slate-700">
+          <label><input type="radio" name="opModo" value="reemplazar" checked> Reemplazar las partidas actuales de este giro</label>
+          <label><input type="radio" name="opModo" value="agregar"> Agregar a las que ya tengo</label>
+        </div>
+        <div class="flex gap-3 mt-4"><button onclick="opApply()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg px-4 py-2">Aplicar al presupuesto</button><button onclick="byId('opPrev').classList.add('hidden')" class="text-sm text-slate-500 hover:text-slate-800 px-3">Cancelar</button></div>`;
+      box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    function opApply() {
+      const modo = document.querySelector('input[name=opModo]:checked').value, { items, meta } = _opPrev, add = modo === 'agregar';
+      if (!add && partidas.length && !confirm('Se reemplazarán las partidas actuales de este giro. ¿Continuar?')) return;
+      let id = add && partidas.length ? Math.max(...partidas.map(p => p.id)) : 0; const cnt = {};
+      const nuevas = items.filter(i => i.total !== 0).map(i => {
+        cnt[i.pref] = (cnt[i.pref] || (add ? partidas.filter(p => String(p.codigo).startsWith(i.pref + '-')).length : 0)) + 1;
+        return { id: ++id, codigo: i.pref + '-' + String(cnt[i.pref]).padStart(2, '0'), tipo: i.tipo, concepto: i.concepto, unidad: 'global', cantPpto: 1, puPpto: Math.round(i.total * 100) / 100, cantReal: 0, puReal: 0, cat: i.cat, meses: i.meses };
+      });
+      partidas = add ? partidas.concat(nuevas) : nuevas;
+      if (meta.anio) { byId('yearInput').value = meta.anio; handleYearChange(meta.anio); }
+      if (meta.mon) { byId('currencySelect').value = meta.mon; handleCurrencyChange(meta.mon); }
+      byId('opPrev').classList.add('hidden'); recalculateAll();
+      showToast(nuevas.length + ' partidas cargadas desde el Excel');
     }
   </script>
 </body>
