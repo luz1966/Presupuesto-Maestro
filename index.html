@@ -2685,15 +2685,23 @@
     const OP_SHEETS = [['ingresos proyectados', 'ingresos', 'Ingreso', 'ING'], ['costos directos', 'directos', null, 'CD'], ['costos indirectos', 'indirectos', 'Indirectos', 'CI'], ['gastos financieros', 'financieros', 'Indirectos', 'GF'], ['imprevistos', 'imprevistos', 'Indirectos', 'IMP'], ['comercializacion', 'comercializacion', 'Indirectos', 'COM']];
     const OP_CAT = { ingresos: 'Ingresos proyectados', directos: 'Costos directos', indirectos: 'Costos indirectos', financieros: 'Gastos financieros', imprevistos: 'Imprevistos y contingencias', comercializacion: 'Comercialización y ventas' };
     const opTipoDirecto = (c) => { const l = razNorm(c); return /mano de obra|destajo|jornal/.test(l) ? 'Mano de Obra' : /maquinaria|equipo/.test(l) ? 'Maquinaria' : /subcontrat/.test(l) ? 'Subcontratos' : 'Materiales'; };
+    const opYear = (v) => { const n = typeof v === 'number' ? v : (typeof v === 'string' && /^\s*(19|20)\d{2}\s*$/.test(v) ? Number(v) : null); return n && n >= 1990 && n <= 2100 ? n : null; };
+    const opIsPer = (c) => typeof c === 'number' && Number.isInteger(c) && c >= 0 && c <= 60;
     function opParseSheet(rows, def) {
-      const cols = []; (rows[0] || []).forEach((c, i) => { if (typeof c === 'number' && Number.isInteger(c) && c >= 0 && c <= 60) cols.push(i); });
-      const out = [];
-      rows.slice(1).forEach(r => {
+      // El encabezado de periodos puede estar en cualquier fila: se busca la que dice "Concepto" (o la primera con varios periodos 0, 1, 2...)
+      let h = rows.findIndex(r => r && r.some(c => typeof c === 'string' && razNorm(c) === 'concepto') && r.filter(opIsPer).length >= 2);
+      if (h < 0) h = rows.findIndex(r => r && r.filter(opIsPer).length >= 3);
+      if (h < 0) return { items: [], info: {} };
+      const hdr = rows[h], cols = []; hdr.forEach((c, i) => { if (opIsPer(c) && c <= 12) cols.push(i); });
+      const yr = h > 0 && rows[h - 1] ? rows[h - 1] : [];
+      const info = { y0: opYear(yr[hdr.findIndex(c => c === 0)]), y1: opYear(yr[hdr.findIndex(c => c === 1)]) };
+      const items = [];
+      rows.slice(h + 1).forEach(r => {
         if (!r || typeof r[0] !== 'string' || !r[0].trim() || /^total/.test(razNorm(r[0]))) return;
-        const meses = cols.map(i => Math.round((razNum(r[i]) || 0) * 100) / 100), total = meses.reduce((a, b) => a + b, 0);
-        out.push({ cat: def[1], tipo: def[2] || opTipoDirecto(r[0]), concepto: r[0].trim(), meses, total, pref: def[3] });
+        const meses = Array(13).fill(0); cols.forEach(i => { meses[hdr[i]] = Math.round((razNum(r[i]) || 0) * 100) / 100; });
+        items.push({ cat: def[1], tipo: def[2] || opTipoDirecto(r[0]), concepto: r[0].trim(), meses, pref: def[3], excl: def[1] === 'ingresos' && /anticipo/.test(razNorm(r[0])) });
       });
-      return out;
+      return { items, info };
     }
     function opParseMeta(rows, meta) {
       rows.forEach(r => (r || []).forEach((c, i) => {
@@ -2703,47 +2711,64 @@
         if (/^proyecto/.test(l) && v) meta.nombre = String(v);
       }));
     }
+    const opSlice = (m, modo) => modo === 'm' ? [0].concat(m.slice(1)) : modo === '0' ? [m[0]].concat(Array(12).fill(0)) : m.slice();
+    const opTot = (i, modo) => Math.round(opSlice(i.meses, modo).reduce((a, b) => a + b, 0) * 100) / 100;
     let _opPrev = null;
     async function opLoadFile(inp) {
       const f = inp.files[0]; inp.value = ''; if (!f) return;
       try {
-        const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' }), items = [], meta = {};
+        const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' }), items = [], meta = {}, infos = [];
         wb.SheetNames.forEach(n => {
           const ln = razNorm(n), rows = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, raw: true });
           if (ln.includes('resumen')) return opParseMeta(rows, meta);
-          const def = OP_SHEETS.find(d => ln.includes(d[0])); if (def) items.push(...opParseSheet(rows, def));
+          const def = OP_SHEETS.find(d => ln.includes(d[0])); if (def) { const r = opParseSheet(rows, def); items.push(...r.items); infos.push(r.info); }
         });
+        const sep = infos.find(x => x.y0 && x.y1 && x.y0 !== x.y1); if (sep) { meta.y0 = sep.y0; meta.y1 = sep.y1; }
         opPreview(items, meta);
-      } catch (e) { showToast('No se pudo leer el archivo. Revisa que sea tu formato de presupuesto operativo en Excel.'); }
+      } catch (e) { console.error(e); showToast('No se pudo leer el archivo. Revisa que sea tu formato de presupuesto operativo en Excel.'); }
     }
     function opPreview(items, meta) {
-      const box = byId('opPrev'); box.classList.remove('hidden');
-      const use = items.filter(i => i.total !== 0), omit = items.length - use.length;
-      if (!use.length) { box.innerHTML = '<p class="text-sm text-amber-700">No encontré conceptos con importes. Verifica que el archivo tenga las hojas del formato (Ingresos Proyectados, Costos Directos, etc.).</p><button onclick="byId(\'opPrev\').classList.add(\'hidden\')" class="mt-3 text-sm text-slate-500 underline">Cerrar</button>'; return; }
-      _opPrev = { items, meta };
-      const tot = (k) => use.filter(i => i.cat === k).reduce((a, i) => a + i.total, 0);
-      const rows = use.map(i => `<tr class="border-t border-slate-100"><td class="p-2 text-xs text-slate-500">${OP_CAT[i.cat]}</td><td class="p-2 text-slate-800">${i.concepto}</td><td class="p-2 text-xs text-slate-500">${i.tipo}</td><td class="p-2 text-right font-medium text-slate-800">${razM(i.total)}</td></tr>`).join('');
+      // Si el periodo 0 trae importes junto a los periodos 1-12, puede ser otro año (p. ej. 2026 cerrado y 2027 mensual)
+      const hasP0 = items.some(i => i.meses[0] && i.meses.slice(1).some(v => v));
+      _opPrev = { items, meta, hasP0, modo: hasP0 && meta.y1 ? 'm' : 'all', agregar: false };
+      opRender();
+    }
+    function opSetModo(v) { _opPrev.modo = v; opRender(); }
+    function opRender() {
+      const { items, meta, modo, hasP0 } = _opPrev, box = byId('opPrev'); box.classList.remove('hidden');
+      const all = items.map(i => ({ i, t: opTot(i, modo) })).filter(x => x.t !== 0), use = all.filter(x => !x.i.excl), exc = all.filter(x => x.i.excl), omit = items.length - all.length;
+      if (!use.length) { box.innerHTML = `<p class="text-sm text-amber-700">No encontré conceptos con importes. Verifica que el archivo tenga las hojas del formato (Ingresos Proyectados, Costos Directos, etc.).</p><button onclick="byId('opPrev').classList.add('hidden')" class="mt-3 text-sm text-slate-500 underline">Cerrar</button>`; return; }
+      const sum = (cats) => use.filter(x => cats.includes(x.i.cat)).reduce((a, x) => a + x.t, 0);
+      const ing = sum(['ingresos']), cd = sum(['directos']), otros = sum(['indirectos', 'financieros', 'imprevistos', 'comercializacion']);
+      const anio = modo === 'm' ? (meta.y1 || meta.anio) : modo === '0' ? (meta.y0 || meta.anio) : meta.anio;
+      const fila = (x, ex) => `<tr class="border-t border-slate-100 ${ex ? 'bg-slate-50' : ''}"><td class="p-2 text-xs text-slate-500">${OP_CAT[x.i.cat]}</td><td class="p-2 ${ex ? 'text-slate-400 line-through' : 'text-slate-800'}">${verEsc(x.i.concepto)}</td><td class="p-2 text-xs text-slate-500">${ex ? 'No se suma' : x.i.tipo}</td><td class="p-2 text-right ${ex ? 'text-slate-400' : 'font-medium text-slate-800'}">${razM(x.t)}</td></tr>`;
+      const selPer = hasP0 ? `<div class="mb-3 flex flex-wrap items-center gap-4 text-sm text-slate-700"><span class="text-xs text-slate-500">Periodos a cargar:</span>${[['m', 'Periodos 1 a 12' + (meta.y1 ? ' (' + meta.y1 + ')' : '')], ['0', 'Solo periodo 0' + (meta.y0 ? ' (' + meta.y0 + ')' : '')], ['all', 'Todos juntos']].map(([v, l]) => `<label><input type="radio" name="opPer" value="${v}" ${modo === v ? 'checked' : ''} onchange="opSetModo('${v}')"> ${l}</label>`).join('')}</div>` : '';
       box.innerHTML = `<h3 class="font-semibold text-slate-800">Vista previa del Excel</h3>
-        <p class="text-xs text-slate-500 mb-3">${meta.nombre ? 'Proyecto: ' + meta.nombre + ' · ' : ''}${meta.anio ? 'Año base ' + meta.anio + ' · ' : ''}${meta.mon || 'MXN'} · ${use.length} conceptos${omit ? ' (' + omit + ' sin importes omitidos)' : ''}. Cada concepto pasa a ser una partida con su total como presupuestado; el real queda en cero para capturarlo después.</p>
-        <div class="overflow-x-auto max-h-72 overflow-y-auto"><table class="w-full text-sm"><thead class="text-xs text-slate-500"><tr><th class="text-left p-2">Categoría</th><th class="text-left p-2">Concepto</th><th class="text-left p-2">Tipo</th><th class="text-right p-2">Total presupuestado</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <p class="text-xs text-slate-500 mb-3">${meta.nombre ? 'Proyecto: ' + verEsc(meta.nombre) + ' · ' : ''}${anio ? 'Año ' + anio + ' · ' : ''}${meta.mon || 'MXN'} · ${use.length} conceptos${omit ? ' (' + omit + ' sin importes omitidos)' : ''}. Cada concepto pasa a ser una partida con su total como presupuestado; el real queda en cero para capturarlo después.</p>
+        ${selPer}
+        <div class="mb-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-xs"><div class="rounded-lg bg-slate-50 p-2"><span class="text-slate-500">Ingresos</span><b class="block text-sm text-slate-800">${razM(ing)}</b></div><div class="rounded-lg bg-slate-50 p-2"><span class="text-slate-500">Costos directos</span><b class="block text-sm text-slate-800">${razM(cd)}</b></div><div class="rounded-lg bg-slate-50 p-2"><span class="text-slate-500">Indirectos y otros</span><b class="block text-sm text-slate-800">${razM(otros)}</b></div><div class="rounded-lg bg-slate-50 p-2"><span class="text-slate-500">Utilidad estimada</span><b class="block text-sm ${ing - cd - otros < 0 ? 'text-red-600' : 'text-emerald-700'}">${razM(ing - cd - otros)}</b></div></div>
+        <div class="overflow-x-auto max-h-72 overflow-y-auto"><table class="w-full text-sm"><thead class="text-xs text-slate-500"><tr><th class="text-left p-2">Categoría</th><th class="text-left p-2">Concepto</th><th class="text-left p-2">Tipo</th><th class="text-right p-2">Total presupuestado</th></tr></thead><tbody>${use.map(x => fila(x, false)).join('')}${exc.map(x => fila(x, true)).join('')}</tbody></table></div>
+        ${exc.length ? '<p class="text-[11px] text-slate-500 mt-2">Los anticipos de clientes no se suman a los ingresos: son cobros adelantados de las mismas ventas y duplicarían el ingreso.</p>' : ''}
         <div class="flex flex-wrap items-center gap-4 mt-4 text-sm text-slate-700">
-          <label><input type="radio" name="opModo" value="reemplazar" checked> Reemplazar las partidas actuales de este giro</label>
-          <label><input type="radio" name="opModo" value="agregar"> Agregar a las que ya tengo</label>
+          <label><input type="radio" name="opModo" value="reemplazar" ${_opPrev.agregar ? '' : 'checked'} onchange="_opPrev.agregar=false"> Reemplazar las partidas actuales de este giro</label>
+          <label><input type="radio" name="opModo" value="agregar" ${_opPrev.agregar ? 'checked' : ''} onchange="_opPrev.agregar=true"> Agregar a las que ya tengo</label>
         </div>
         <div class="flex gap-3 mt-4"><button onclick="opApply()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg px-4 py-2">Aplicar al presupuesto</button><button onclick="byId('opPrev').classList.add('hidden')" class="text-sm text-slate-500 hover:text-slate-800 px-3">Cancelar</button></div>`;
       box.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
     function opApply() {
-      const modo = document.querySelector('input[name=opModo]:checked').value, { items, meta } = _opPrev, add = modo === 'agregar';
+      const { items, meta, modo, agregar } = _opPrev, add = !!agregar;
       if (!add && partidas.length && !confirm('Se reemplazarán las partidas actuales de este giro. ¿Continuar?')) return;
       let id = add && partidas.length ? Math.max(...partidas.map(p => p.id)) : 0; const cnt = {};
-      const nuevas = items.filter(i => i.total !== 0).map(i => {
+      const nuevas = items.filter(i => !i.excl && opTot(i, modo) !== 0).map(i => {
+        const t = opTot(i, modo), meses = modo === '0' ? [0].concat(Array(12).fill(t / 12)) : opSlice(i.meses, modo);
         cnt[i.pref] = (cnt[i.pref] || (add ? partidas.filter(p => String(p.codigo).startsWith(i.pref + '-')).length : 0)) + 1;
-        return { id: ++id, codigo: i.pref + '-' + String(cnt[i.pref]).padStart(2, '0'), tipo: i.tipo, concepto: i.concepto, unidad: 'global', cantPpto: 1, puPpto: Math.round(i.total * 100) / 100, cantReal: 0, puReal: 0, cat: i.cat, meses: i.meses };
+        return { id: ++id, codigo: i.pref + '-' + String(cnt[i.pref]).padStart(2, '0'), tipo: i.tipo, concepto: i.concepto, unidad: 'global', cantPpto: 1, puPpto: t, cantReal: 0, puReal: 0, cat: i.cat, meses };
       });
+      const anio = modo === 'm' ? (meta.y1 || meta.anio) : modo === '0' ? (meta.y0 || meta.anio) : meta.anio;
       partidas = add ? partidas.concat(nuevas) : nuevas;
       if (meta.nombre) _fp.nombre = meta.nombre;
-      if (meta.anio) { byId('yearInput').value = meta.anio; handleYearChange(meta.anio); }
+      if (anio) { byId('yearInput').value = anio; handleYearChange(anio); }
       if (meta.mon) { byId('currencySelect').value = meta.mon; handleCurrencyChange(meta.mon); }
       byId('opPrev').classList.add('hidden'); recalculateAll();
       showToast(nuevas.length + ' partidas cargadas desde el Excel');
