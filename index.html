@@ -592,6 +592,30 @@
 
     <!-- TAB 4: PRESUPUESTO FINANCIERO (FLUJO DE CAJA DE OBRA) -->
     <div id="view-financiero" class="hidden space-y-6">
+      <div class="bg-white rounded-xl border border-slate-200 p-5 space-y-5">
+        <div class="flex flex-wrap items-end gap-4">
+          <div>
+            <h2 class="font-bold text-slate-800">Presupuesto Financiero · Estado de Resultados y Flujo de Efectivo</h2>
+            <p class="text-xs text-slate-500">Se calcula con tu presupuesto operativo (importes presupuestados) y el plazo de cobranza que definas.</p>
+          </div>
+          <div class="ml-auto flex flex-wrap items-end gap-3">
+            <label class="text-xs text-slate-500">Plazo de cobranza (días)<input id="fpPlazo" type="number" min="0" step="1" oninput="fpSet('plazo',this.value)" class="block w-28 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800"></label>
+            <label class="text-xs text-slate-500">Mes del periodo 1<select id="fpInicio" onchange="fpSet('inicio',this.value)" class="block w-28 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800"></select></label>
+            <label class="text-xs text-slate-500">Saldo inicial<input id="fpSaldo" type="number" step="any" oninput="fpSet('saldo',this.value)" class="block w-28 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800"></label>
+            <button onclick="finExport()" class="text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg px-3 py-2">Descargar Excel (formato)</button>
+          </div>
+        </div>
+        <div class="grid md:grid-cols-2 gap-6">
+          <div><h3 class="font-semibold text-slate-800 mb-2 text-sm">Estado de Resultados</h3><table class="w-full text-sm"><tbody id="finER"></tbody></table></div>
+          <div><h3 class="font-semibold text-slate-800 mb-2 text-sm">Balance General</h3><table class="w-full text-sm"><tbody id="finBal"></tbody></table><p id="finBalNote" class="text-[11px] text-slate-400 mt-1"></p></div>
+        </div>
+        <div class="overflow-x-auto">
+          <h3 class="font-semibold text-slate-800 mb-2 text-sm">Flujo de Efectivo</h3>
+          <table class="w-full text-sm"><thead class="bg-slate-50 text-xs text-slate-500 uppercase"><tr><th class="text-left p-2">Mes</th><th class="text-right p-2">Entradas</th><th class="text-right p-2">Salidas</th><th class="text-right p-2">Saldo mensual</th><th class="text-right p-2">Saldo acumulado</th></tr></thead><tbody id="finFlujo"></tbody></table>
+          <p id="finPend" class="text-xs text-slate-500 mt-2"></p>
+        </div>
+      </div>
+
       
       <!-- Controles y Parámetros Financieros -->
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
@@ -2411,7 +2435,7 @@
     let _giros = {}, _uid = null, _ready = false, _t = null;
 
     const _recalc = recalculateAll;
-    recalculateAll = function () { _recalc(); if (_ready) _queueSave(); };
+    recalculateAll = function () { _recalc(); if (typeof finRender === 'function') finRender(); if (_ready) _queueSave(); };
 
     function _queueSave() {
       _giros[currentSpecialty] = JSON.parse(JSON.stringify(partidas));
@@ -2420,7 +2444,7 @@
     }
     async function _save() {
       const customs = [...byId('specialtySelect').options].filter(o => !DEFAULT_GIROS.includes(o.value)).map(o => ({ v: o.value, t: o.textContent }));
-      const datos = { specialty: currentSpecialty, currency: currentCurrency, year: currentYear, giros: _giros, customs, razones: _raz };
+      const datos = { specialty: currentSpecialty, currency: currentCurrency, year: currentYear, giros: _giros, customs, razones: _raz, fin: _fp };
       const { error } = await _sb.from('presupuestos').upsert({ user_id: _uid, datos, updated_at: new Date().toISOString() });
       byId('saveState').textContent = error ? '⚠ No se pudo guardar' : '✓ Guardado';
     }
@@ -2428,7 +2452,7 @@
       const { data } = await _sb.from('presupuestos').select('datos').eq('user_id', _uid).maybeSingle();
       const d = data && data.datos;
       if (d && d.giros) {
-        _giros = d.giros; _raz = d.razones || {};
+        _giros = d.giros; _raz = d.razones || {}; Object.assign(_fp, d.fin || {});
         const sel = byId('specialtySelect');
         (d.customs || []).forEach(c => {
           if (!sel.querySelector('option[value="' + c.v + '"]')) { const o = document.createElement('option'); o.value = c.v; o.textContent = c.t; sel.appendChild(o); }
@@ -2439,7 +2463,7 @@
         const y = byId('yearInput'); if (y) y.value = currentYear;
       }
       partidas = JSON.parse(JSON.stringify(_giros[currentSpecialty] || PRESETS[currentSpecialty] || []));
-      _ready = true; recalculateAll(); razBuild(); byId('saveState').textContent = '';
+      _ready = true; recalculateAll(); razBuild(); finBuild(); byId('saveState').textContent = '';
     }
     _sb.auth.onAuthStateChange((ev, s) => {
       if (ev === 'PASSWORD_RECOVERY') byId('pwModal').classList.remove('hidden');
@@ -2691,10 +2715,85 @@
         return { id: ++id, codigo: i.pref + '-' + String(cnt[i.pref]).padStart(2, '0'), tipo: i.tipo, concepto: i.concepto, unidad: 'global', cantPpto: 1, puPpto: Math.round(i.total * 100) / 100, cantReal: 0, puReal: 0, cat: i.cat, meses: i.meses };
       });
       partidas = add ? partidas.concat(nuevas) : nuevas;
+      if (meta.nombre) _fp.nombre = meta.nombre;
       if (meta.anio) { byId('yearInput').value = meta.anio; handleYearChange(meta.anio); }
       if (meta.mon) { byId('currencySelect').value = meta.mon; handleCurrencyChange(meta.mon); }
       byId('opPrev').classList.add('hidden'); recalculateAll();
       showToast(nuevas.length + ' partidas cargadas desde el Excel');
+    }
+
+    // ===== Presupuesto financiero =====
+    let _fp = { plazo: 30, inicio: 0, saldo: 0, nombre: '' };
+    const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const MON_TXT = { MXN: 'pesos', USD: 'dólares', EUR: 'euros' };
+    function finSeries() {
+      const z = () => Array(12).fill(0), S = { ingresos: z(), directos: z(), indirectos: z(), financieros: z(), imprevistos: z() };
+      partidas.forEach(p => {
+        let c = p.cat || (p.tipo === 'Ingreso' ? 'ingresos' : p.tipo === 'Indirectos' ? 'indirectos' : 'directos');
+        if (c === 'comercializacion') c = 'indirectos';
+        const tot = (p.cantPpto || 0) * (p.puPpto || 0); if (!S[c] || !tot) return;
+        let m = Array.isArray(p.meses) ? p.meses.slice() : [], sum = m.reduce((a, b) => a + b, 0);
+        m = sum ? m.map(v => v * tot / sum) : [0].concat(Array(12).fill(tot / 12));
+        m[1] = (m[1] || 0) + (m[0] || 0);
+        for (let i = 0; i < 12; i++) S[c][i] += m[i + 1] || 0;
+      });
+      return S;
+    }
+    function finCobranza(ing, plazo) {
+      const L = Math.max(0, plazo) / 30, lo = Math.floor(L), fr = L - lo, out = Array(12).fill(0);
+      ing.forEach((v, s) => { if (s + lo < 12) out[s + lo] += v * (1 - fr); if (fr && s + lo + 1 < 12) out[s + lo + 1] += v * fr; });
+      return out;
+    }
+    function finModel() {
+      const S = finSeries(), sum = a => a.reduce((x, y) => x + y, 0);
+      const sal = S.directos.map((_, i) => S.directos[i] + S.indirectos[i] + S.financieros[i] + S.imprevistos[i]), ent = finCobranza(S.ingresos, _fp.plazo);
+      const M = { ing: sum(S.ingresos), cd: sum(S.directos), ci: sum(S.indirectos), gf: sum(S.financieros), im: sum(S.imprevistos), ent, sal };
+      M.un = M.ing - M.cd - M.ci - M.gf - M.im; M.pend = M.ing - sum(ent);
+      const b = razBase(_raz[String(currentYear)] || {}); M.bal = (b.AT || b.PT || b.CAP) ? { AT: b.AT, PT: b.PT, CAP: b.AT - b.PT } : null;
+      return M;
+    }
+    function fpSet(k, v) {
+      _fp[k] = Number(v) || 0; if (k === 'plazo') finParams.plazoCobroDias = _fp.plazo;
+      finRender(); if (_ready) _queueSave();
+    }
+    function finBuild() {
+      if (!byId('fpPlazo')) return;
+      byId('fpPlazo').value = _fp.plazo; byId('fpSaldo').value = _fp.saldo;
+      byId('fpInicio').innerHTML = MESES.map((m, i) => `<option value="${i}" ${i === _fp.inicio ? 'selected' : ''}>${m}</option>`).join('');
+      finRender();
+    }
+    function finRender() {
+      if (!byId('finER')) return;
+      const M = finModel(), r = (l, v, b) => `<tr class="border-t border-slate-100 ${b ? 'font-semibold bg-slate-50' : ''}"><td class="p-2 text-slate-700">${l}</td><td class="p-2 text-right ${v < 0 ? 'text-red-600' : 'text-slate-800'}">${v == null ? '—' : razM(v)}</td></tr>`;
+      byId('finER').innerHTML = r('Ingresos Totales', M.ing) + r('(-) Costos Directos', M.cd) + r('(-) Costos Indirectos', M.ci) + r('(-) Gastos Financieros', M.gf) + r('(-) Imprevistos', M.im) + r('Utilidad Neta', M.un, 1);
+      const b = M.bal || {};
+      byId('finBal').innerHTML = r('Activos Totales', b.AT) + r('(-) Pasivos Totales', b.PT) + r('Capital Contable Total', b.CAP, 1);
+      byId('finBalNote').textContent = M.bal ? 'Tomado de tu captura en Razones Financieras (año ' + currentYear + ').' : 'Captura tu balance del año ' + currentYear + ' en la pestaña Razones Financieras para verlo aquí.';
+      let acc = Number(_fp.saldo) || 0, tE = 0, tS = 0;
+      const rows = M.ent.map((e, i) => { const n = e - M.sal[i]; acc += n; tE += e; tS += M.sal[i];
+        return `<tr class="border-t border-slate-100"><td class="p-2 text-slate-700">${MESES[(_fp.inicio + i) % 12]}</td><td class="p-2 text-right">${razM(e)}</td><td class="p-2 text-right">${razM(M.sal[i])}</td><td class="p-2 text-right ${n < 0 ? 'text-red-600' : ''}">${razM(n)}</td><td class="p-2 text-right font-medium ${acc < 0 ? 'text-red-600' : 'text-slate-800'}">${razM(acc)}</td></tr>`; });
+      byId('finFlujo').innerHTML = rows.join('') + `<tr class="border-t-2 border-slate-300 font-semibold bg-slate-50"><td class="p-2">Total</td><td class="p-2 text-right">${razM(tE)}</td><td class="p-2 text-right">${razM(tS)}</td><td class="p-2 text-right">${razM(tE - tS)}</td><td class="p-2 text-right">${razM(acc)}</td></tr>`;
+      byId('finPend').textContent = M.pend > 1 ? `Con un plazo de cobranza de ${_fp.plazo} días, quedan por cobrar $ ${razM(M.pend)} después del mes 12.` : '';
+    }
+    function finExport() {
+      const M = finModel(), mon = currentCurrency, today = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
+      const F = (f, v) => ({ t: 'n', f, v });
+      const er = [[null, 'PRESUPUESTO FINANCIERO'], [], [null, null, 'Proyecto/Empresa:', _fp.nombre || ''], [null, null, 'Fecha de elaboración:', today], [null, null, 'Año Base:', Number(currentYear)], [null, null, 'Numeros en:', MON_TXT[mon] || mon], [], ['PREMISAS  Y SUPUESTOS'], ['Plazo de cobranza (días)', _fp.plazo], ['Indicadores Macroeconomicos'], ['Inflación'], ['Tipo de cambio'], ['Tasa de interés'],
+        ['Concepto', 'Monto Proyectado (' + mon + ')', 'Comentarios'], ['Ingresos Totales', M.ing], ['(-) Costos Directos', M.cd], ['(-) Costos Indirectos', M.ci], ['(-) Gastos Financieros', M.gf], ['(-) Imprevistos', M.im], ['Utilidad Neta', F('B15-SUM(B16:B19)', M.un)]];
+      let acc = Number(_fp.saldo) || 0;
+      const fl = [['Mes', 'Entradas (' + mon + ')', 'Salidas (' + mon + ')', 'Saldo Mensual (' + mon + ')', 'Saldo Acumulado (' + mon + ')']];
+      M.ent.forEach((e, i) => { const r = i + 2, n = e - M.sal[i]; acc += n; fl.push([MESES[(_fp.inicio + i) % 12], e, M.sal[i], F('B' + r + '-C' + r, n), F(i ? 'E' + (r - 1) + '+D' + r : (Number(_fp.saldo) || 0) + '+D' + r, acc)]); });
+      const sm = (a) => a.reduce((x, y) => x + y, 0);
+      fl.push(['Total', F('SUM(B2:B13)', sm(M.ent)), F('SUM(C2:C13)', sm(M.sal)), F('SUM(D2:D13)', sm(M.ent) - sm(M.sal)), F('E13', acc)]);
+      const b = M.bal || { AT: null, PT: null, CAP: null };
+      const bl = [['Categoría', 'Monto Proyectado (' + mon + ')', 'Comentarios'], ['Activos Totales', b.AT], ['(-) Pasivos Totales', b.PT], ['Capital Contable Total', M.bal ? F('B2-B3', b.CAP) : null]];
+      const wb = XLSX.utils.book_new();
+      [['Estado de Resultados', er, [34, 22, 22, 26]], ['Flujo de Efectivo', fl, [16, 20, 20, 22, 24]], ['Balance General', bl, [28, 24, 30]]].forEach(([n, aoa, w]) => {
+        const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = w.map(x => ({ wch: x }));
+        Object.keys(ws).forEach(k => { if (k[0] !== '!' && ws[k].t === 'n' && !(n === 'Estado de Resultados' && /^D5$/.test(k)) && !(n === 'Estado de Resultados' && k === 'B9')) ws[k].z = '#,##0'; });
+        XLSX.utils.book_append_sheet(wb, ws, n);
+      });
+      XLSX.writeFile(wb, 'presupuesto-financiero.xlsx');
     }
   </script>
 </body>
