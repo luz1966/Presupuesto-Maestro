@@ -818,7 +818,8 @@
         <div class="ml-auto flex items-end gap-3">
           <label class="text-xs text-slate-500">Año a analizar<input id="razYear" type="number" onchange="razBuild()" class="block w-24 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800"></label>
           <button onclick="razFromPpto()" class="text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg px-3 py-2" title="Copia ventas y costos reales del presupuesto del giro activo">Traer ventas y costos del presupuesto</button>
-          <button onclick="razTemplate()" class="text-xs bg-slate-700 hover:bg-slate-800 text-white rounded-lg px-3 py-2">Descargar plantilla Excel</button>
+          <button onclick="razTemplate()" class="text-xs bg-slate-700 hover:bg-slate-800 text-white rounded-lg px-3 py-2" title="Versión resumida: un total por grupo">Plantilla resumida</button>
+          <button onclick="razTemplate2()" class="text-xs bg-slate-700 hover:bg-slate-800 text-white rounded-lg px-3 py-2" title="Una fila por cuenta: Balance y Estado de Resultados">Plantilla por cuentas</button>
           <button onclick="byId('razFile').click()" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-2">Subir Excel</button>
           <input id="razFile" type="file" accept=".xlsx,.xls,.csv" class="hidden" onchange="razLoadFile(this)">
         </div>
@@ -827,6 +828,8 @@
         <div class="bg-white rounded-xl border border-slate-200 p-5"><h3 class="font-semibold text-slate-800 mb-3">Balance General</h3><div id="razBal" class="grid grid-cols-2 gap-3"></div><p id="razCheck" class="text-xs mt-3"></p></div>
         <div class="bg-white rounded-xl border border-slate-200 p-5"><h3 class="font-semibold text-slate-800 mb-3">Estado de Resultados</h3><div id="razRes" class="grid grid-cols-2 gap-3"></div><p id="razUN" class="text-xs mt-3 text-slate-500"></p></div>
       </div>
+      <div id="razDet" class="hidden bg-white rounded-xl border border-slate-200 p-5"></div>
+      <p id="razPer" class="hidden text-xs text-sky-700 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2"></p>
       <div class="bg-white rounded-xl border border-slate-200 overflow-x-auto">
         <table class="w-full text-sm"><thead class="bg-slate-50 text-xs text-slate-500 uppercase"><tr><th class="text-left p-3">Razón</th><th class="text-right p-3">Año</th><th class="text-right p-3">Año anterior</th><th class="p-3">Semáforo</th><th class="text-left p-3">Qué mide</th></tr></thead><tbody id="razOut"></tbody></table>
         <p class="text-[11px] text-slate-400 p-3">Los rangos del semáforo son referencias generales; interprétalos según tu giro.</p>
@@ -2528,7 +2531,8 @@
       const AC = g('efectivo') + g('cxc') + g('inv') + g('otrosAC'), AT = AC + g('activoFijo') + g('otrosANC');
       const PC = g('cxp') + g('deudaCP') + g('otrosPC'), PT = PC + g('deudaLP'), CAP = g('capital');
       const UB = g('ventas') - g('costo'), UAII = UB - g('gastosOp'), UN = UAII - g('intereses') - g('impuestos');
-      return { g, AC, AT, PC, PT, CAP, UB, UAII, UN };
+      const meses = Number(d.meses) > 0 ? Number(d.meses) : 12;
+      return { g, AC, AT, PC, PT, CAP, UB, UAII, UN, dias: 365 * meses / 12, meses };
     }
     const dv = (a, b) => (b ? a / b : null);
     const RAZONES = [
@@ -2538,9 +2542,9 @@
       { n: 'Endeudamiento', t: '%', f: b => dv(b.PT, b.AT), good: [0.5, 0.7], dir: -1, d: 'Proporción de los activos financiada con deuda.' },
       { n: 'Deuda / Capital', t: 'x', f: b => dv(b.PT, b.CAP), good: [1, 2], dir: -1, d: 'Cuánto debes por cada peso de capital propio.' },
       { n: 'Cobertura de intereses', t: 'x', f: b => dv(b.UAII, b.g('intereses')), good: [3, 1.5], dir: 1, d: 'Veces que la utilidad operativa cubre los intereses.' },
-      { n: 'Días de cobro', t: 'd', f: b => { const r = dv(b.g('cxc'), b.g('ventas')); return r == null ? null : r * 365; }, good: [45, 75], dir: -1, d: 'Días promedio que tardas en cobrar a tus clientes.' },
-      { n: 'Días de pago', t: 'd', f: b => { const r = dv(b.g('cxp'), b.g('costo')); return r == null ? null : r * 365; }, d: 'Días promedio que tardas en pagar a proveedores (informativo).' },
-      { n: 'Días de inventario', t: 'd', f: b => { const r = dv(b.g('inv'), b.g('costo')); return r == null ? null : r * 365; }, good: [60, 120], dir: -1, d: 'Días que permanecen los materiales antes de usarse o venderse.' },
+      { n: 'Días de cobro', t: 'd', f: b => { const r = dv(b.g('cxc'), b.g('ventas')); return r == null ? null : r * b.dias; }, good: [45, 75], dir: -1, d: 'Días promedio que tardas en cobrar a tus clientes.' },
+      { n: 'Días de pago', t: 'd', f: b => { const r = dv(b.g('cxp'), b.g('costo')); return r == null ? null : r * b.dias; }, d: 'Días promedio que tardas en pagar a proveedores (informativo).' },
+      { n: 'Días de inventario', t: 'd', f: b => { const r = dv(b.g('inv'), b.g('costo')); return r == null ? null : r * b.dias; }, good: [60, 120], dir: -1, d: 'Días que permanecen los materiales antes de usarse o venderse.' },
       { n: 'Margen bruto', t: '%', f: b => dv(b.UB, b.g('ventas')), good: [0.25, 0.15], dir: 1, d: 'Utilidad después del costo de ventas, sobre ventas.' },
       { n: 'Margen neto', t: '%', f: b => dv(b.UN, b.g('ventas')), good: [0.08, 0.03], dir: 1, d: 'Utilidad final por cada peso vendido.' },
       { n: 'ROA (rendimiento del activo)', t: '%', f: b => dv(b.UN, b.AT), good: [0.08, 0.03], dir: 1, d: 'Utilidad generada por cada peso invertido en activos.' },
@@ -2558,9 +2562,9 @@
     function razBuild() {
       const y = byId('razYear'); if (!y) return;
       if (!y.value) y.value = currentYear;
-      const d = _raz[razYr()] || {};
-      const box = (arr, id) => { byId(id).innerHTML = arr.map(([k, l]) => `<label class="text-xs text-slate-500">${l}<input type="text" inputmode="decimal" autocomplete="off" value="${numShow(d[k])}" oninput="numFmt(this);razSet('${k}',numVal(this.value))" class="block w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800 mt-0.5"></label>`).join(''); };
-      box(RAZ_BAL, 'razBal'); box(RAZ_RES, 'razRes'); razRender();
+      const d = _raz[razYr()] || {}, det = d.detalle || [];
+      const box = (arr, id, side) => { const ro = det.some(i => i.s === side) ? ' readonly title="Se calcula desde el detalle de cuentas"' : ''; byId(id).innerHTML = arr.map(([k, l]) => `<label class="text-xs text-slate-500">${l}<input type="text"${ro} inputmode="decimal" autocomplete="off" value="${numShow(d[k])}" oninput="numFmt(this);razSet('${k}',numVal(this.value))" class="block w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800 mt-0.5${ro ? ' bg-slate-50' : ''}"></label>`).join(''); };
+      box(RAZ_BAL, 'razBal', 'b'); box(RAZ_RES, 'razRes', 'r'); razRender();
     }
     function razSet(k, v) {
       const y = razYr(); _raz[y] = _raz[y] || {}; _raz[y][k] = v === '' ? '' : Number(v);
@@ -2578,6 +2582,9 @@
         else t.costo += v;
       });
       if (!t.ventas && !t.costo && !t.gastosOp && !t.intereses) { showToast('El presupuesto no tiene partidas con importes todavía.'); return; }
+      if ((_raz[y].detalle || []).some(i => i.s === 'r') && !confirm('Este año tiene el detalle de cuentas del Estado de Resultados importado. ¿Reemplazarlo con los datos del presupuesto?')) return;
+      if (_raz[y].detalle) _raz[y].detalle = _raz[y].detalle.filter(i => i.s !== 'r');
+      if (_raz[y].meses) _raz[y].meses = 12;
       Object.keys(t).forEach(k => { _raz[y][k] = Math.round(t[k]); });
       razBuild(); if (_ready) _queueSave();
       showToast('Datos traídos del presupuesto (' + (hayReal ? 'importes reales' : 'importes presupuestados') + ')');
@@ -2587,6 +2594,7 @@
       const diff = cur.AT - (cur.PT + cur.CAP), chk = byId('razCheck');
       chk.className = 'text-xs mt-3 ' + (cur.AT || cur.PT || cur.CAP ? (Math.abs(diff) > 1 ? 'text-amber-600' : 'text-emerald-600') : 'text-slate-400');
       chk.textContent = !(cur.AT || cur.PT || cur.CAP) ? 'Captura tu balance para comenzar.' : Math.abs(diff) > 1 ? `El balance no cuadra: diferencia de $ ${razM(diff)} (activos − pasivos − capital).` : 'Balance cuadrado ✓';
+      razDetRender(); { const pn = byId('razPer'), m = cur.meses; pn.classList.toggle('hidden', m === 12); pn.textContent = `Estado de resultados de ${m} meses acumulados: los días de cobro, pago e inventario ya se calculan sobre ${m} meses. ROA y ROE corresponden al periodo (no están anualizados).`; }
       byId('razUN').textContent = `Utilidad bruta: $ ${razM(cur.UB)} · Utilidad operativa: $ ${razM(cur.UAII)} · Utilidad neta: $ ${razM(cur.UN)}`;
       byId('razOut').innerHTML = RAZONES.map(r => {
         const v = r.f(cur), pv = prev ? r.f(prev) : null, [, lbl, cls] = razTone(v, r);
@@ -2649,10 +2657,154 @@
       });
       return out;
     }
+
+    // ===== Estados financieros en formato contable (balance + estado de resultados) =====
+    const RAZ_MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    const RAZ_LBL = Object.fromEntries([...RAZ_BAL, ...RAZ_RES]);
+    function razStmtGroup(kind, sec, label) {
+      const l = razNorm(label);
+      if (kind === 'er') {
+        if (sec === 'ing') return [/devoluc|bonific|descuent/.test(l) ? -1 : 1, 'ventas'];
+        if (/otros ingresos|productos financieros|utilidad cambiaria/.test(l)) return [-1, 'gastosOp'];
+        if (/obra|costo|produccion|materiales|mano de obra|subcontrat|destajo/.test(l)) return [1, 'costo'];
+        if (/interes|financier|comision(es)? bancaria/.test(l)) return [1, 'intereses'];
+        if (/impuesto|isr|ptu/.test(l)) return [1, 'impuestos'];
+        return [1, 'gastosOp'];
+      }
+      if (kind === 'act') {
+        if (sec === 'fijo') return [/depreciac|amortizac/.test(l) ? -1 : 1, 'activoFijo'];
+        if (sec === 'otro') return [1, 'otrosANC'];
+        if (/banco|caja|inversion|efectivo/.test(l)) return [1, 'efectivo'];
+        if (/cliente|cuentas por cobrar|documentos por cobrar/.test(l)) return [1, 'cxc'];
+        if (/inventario|almacen/.test(l)) return [1, 'inv'];
+        return [1, 'otrosAC'];
+      }
+      if (sec === 'cap') return [1, 'capital'];
+      if (sec === 'lp') return [1, 'deudaLP'];
+      if (/proveedor|cuentas por pagar/.test(l)) return [1, 'cxp'];
+      if (/documentos por pagar|prestamo|credito|banco|financiamiento|arrendamiento/.test(l)) return [1, 'deudaCP'];
+      return [1, 'otrosPC'];
+    }
+    function razStmtSheet(rows, name) {
+      const heads = []; let hr = -1;
+      rows.forEach((row, ri) => { if (!row) return; const hs = []; row.forEach((c, i) => { if (typeof c !== 'string') return; const n = razNorm(c); if (n === 'concepto' && row.some(x => typeof x === 'string' && razNorm(x) === 'importe')) hs.push([i, 'er']); else if (n === 'activo') hs.push([i, 'act']); else if (n === 'pasivo y capital') hs.push([i, 'pas']); }); if (hs.length && hr < 0) { hr = ri; hs.forEach(h => heads.push(h)); } });
+      if (hr < 0) return null;
+      heads.sort((a, b) => a[0] - b[0]);
+      const res = { name, er: [], b: [], tot: {}, resultado: null, titulo: '', hay: { er: heads.some(h => h[1] === 'er'), bal: heads.some(h => h[1] === 'act') } };
+      const blk = (ci) => { let b = null; heads.forEach((h, i) => { if (h[0] <= ci) b = i; }); return b; };
+      const secs = {}, ing = { v: true };
+      const tit = []; for (let r = 0; r < hr; r++) (rows[r] || []).forEach(c => { if (typeof c === 'string' && razNorm(c)) tit.push(c); });
+      res.titulo = tit.join(' | ');
+      for (let r = hr + 1; r < rows.length; r++) {
+        const row = rows[r]; if (!row) continue;
+        row.forEach((c, ci) => {
+          if (typeof c !== 'string' || !razNorm(c)) return;
+          const bi = blk(ci); if (bi == null) return; const kind = heads[bi][1], end = bi + 1 < heads.length ? heads[bi + 1][0] : row.length;
+          let v = null; for (let j = ci + 1; j < end; j++) { const n = razNum(row[j]); if (n != null) { v = n; break; } if (typeof row[j] === 'string' && razNorm(row[j])) break; }
+          const l = razNorm(c);
+          if (v == null) {
+            if (kind === 'act') secs[bi] = /fijo/.test(l) ? 'fijo' : /circulante/.test(l) ? 'circ' : /diferid|otros activos|largo plazo/.test(l) ? 'otro' : secs[bi];
+            else if (kind === 'pas') secs[bi] = /capital|patrimonio/.test(l) ? 'cap' : /largo/.test(l) ? 'lp' : /corto|circulante/.test(l) ? 'cp' : secs[bi];
+            return;
+          }
+          if (/^total/.test(l)) {
+            if (kind === 'er' && /ingreso/.test(l)) ing.v = false;
+            if (kind === 'act' && /^total activo/.test(l)) res.tot.act = v;
+            if (kind === 'pas' && /^total pasivo y capital/.test(l)) res.tot.pc = v;
+            if (kind === 'er') res.tot[l] = v;
+            return;
+          }
+          if (kind === 'er' && /^(resultado|utilidad|perdida)/.test(l)) { res.resultado = v; return; }
+          const [sg, g] = razStmtGroup(kind, kind === 'er' ? (ing.v ? 'ing' : 'egr') : secs[bi], c);
+          (kind === 'er' ? res.er : res.b).push({ l: String(c).trim(), g, v: sg * v, s: kind === 'er' ? 'r' : 'b' });
+        });
+      }
+      return res;
+    }
+    function razStmtPeriod(sheets) {
+      const txt = sheets.map(s => s.titulo).join(' | ').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      const yr = (txt.match(/20\d\d/g) || []).map(Number).pop() || null;
+      const m = [...txt.matchAll(/al\s+\d{1,2}\s+de\s+([a-z]+)/g)].map(x => RAZ_MESES.indexOf(x[1])).filter(i => i >= 0);
+      const ini = txt.match(/del\s+\d{1,2}\s+de\s+([a-z]+)/), ii = ini ? RAZ_MESES.indexOf(ini[1]) : -1;
+      const fin = m.length ? m[0] : -1;
+      return { year: yr, meses: fin >= 0 ? fin - Math.max(ii, 0) + 1 : 12, fin };
+    }
+    function razStmtParse(wb) {
+      const sheets = wb.SheetNames.map(n => razStmtSheet(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, raw: true }), n)).filter(Boolean);
+      if (!sheets.some(s => s.er.length || s.b.length)) return null;
+      const sum = (a, f) => a.filter(f).reduce((t, i) => t + i.v, 0);
+      const bal = (s) => { const A = sum(s.b, i => ['efectivo', 'cxc', 'inv', 'otrosAC', 'activoFijo', 'otrosANC'].includes(i.g)), P = sum(s.b, i => !['efectivo', 'cxc', 'inv', 'otrosAC', 'activoFijo', 'otrosANC'].includes(i.g)); return Math.abs(A - P); };
+      const balCand = sheets.filter(s => s.b.length).sort((a, b) => bal(a) - bal(b)), erCand = sheets.filter(s => s.er.length);
+      const B = balCand[0] || null, E = erCand[0] || null, per = razStmtPeriod(erCand.length ? erCand : sheets);
+      if (B && !E) { const pb = razStmtPeriod([B]); per.year = pb.year || per.year; per.meses = pb.fin >= 0 ? pb.fin + 1 : per.meses; }
+      return { B, E, per, descartadas: balCand.slice(1).map(s => s.name) };
+    }
+    function razStmtTotals(items, side) {
+      const o = {}; (side === 'b' ? RAZ_BAL : RAZ_RES).forEach(([k]) => { if (items.some(i => i.g === k)) o[k] = 0; });
+      items.forEach(i => { if (i.g) o[i.g] = (o[i.g] || 0) + i.v; }); Object.keys(o).forEach(k => o[k] = Math.round(o[k] * 100) / 100); return o;
+    }
+    let _razStmt = null;
+    function razStmtPreview(st) {
+      _razStmt = st; const box = byId('razPrev'), items = [...(st.B ? st.B.b : []), ...(st.E ? st.E.er : [])];
+      const tb = razStmtTotals(st.B ? st.B.b : [], 'b'), tr = razStmtTotals(st.E ? st.E.er : [], 'r');
+      const A = ['efectivo', 'cxc', 'inv', 'otrosAC', 'activoFijo', 'otrosANC'].reduce((t, k) => t + (tb[k] || 0), 0), PC = ['cxp', 'deudaCP', 'otrosPC', 'deudaLP', 'capital'].reduce((t, k) => t + (tb[k] || 0), 0);
+      const un = (tr.ventas || 0) - (tr.costo || 0) - (tr.gastosOp || 0) - (tr.intereses || 0) - (tr.impuestos || 0);
+      const f2 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const chk = [];
+      if (st.B) chk.push(Math.abs(A - PC) < 1 ? `<span class="text-emerald-600">Balance cuadrado ✓ (Activo $ ${f2(A)} = Pasivo + Capital $ ${f2(PC)})</span>` : `<span class="text-amber-600">El balance no cuadra: Activo $ ${f2(A)} vs Pasivo + Capital $ ${f2(PC)}</span>`);
+      if (st.E) chk.push(st.E.resultado == null ? '' : Math.abs(un - st.E.resultado) < 1 ? `<span class="text-emerald-600">Utilidad neta $ ${f2(un)} coincide con el "Resultado del ejercicio" del archivo ✓</span>` : `<span class="text-amber-600">Utilidad calculada $ ${f2(un)} vs "Resultado del ejercicio" del archivo $ ${f2(st.E.resultado)}</span>`);
+      if (st.descartadas.length) chk.push(`<span class="text-slate-500">Usé el balance de la hoja "${verEsc(st.B.name)}"; la copia de la hoja ${st.descartadas.map(n => '"' + verEsc(n) + '"').join(', ')} no cuadraba y se ignoró.</span>`);
+      const rows = items.map(i => `<tr class="border-t border-slate-100"><td class="p-1.5 text-slate-700">${verEsc(i.l)}</td><td class="p-1.5 text-slate-500">${i.s === 'b' ? 'Balance' : 'Resultados'}</td><td class="p-1.5 text-slate-600">${RAZ_LBL[i.g] || '—'}</td><td class="p-1.5 text-right">${f2(i.v)}</td></tr>`).join('');
+      box.classList.remove('hidden');
+      box.innerHTML = `<h3 class="font-semibold text-slate-800">Leí ${items.length} cuentas del archivo</h3>
+        <p class="text-xs text-slate-500 mb-3">Cada cuenta se asigna a un grupo de las razones. Después de aplicar podrás cambiar el grupo de cualquier cuenta en el "Detalle de cuentas".</p>
+        <div class="flex flex-wrap gap-4 mb-3"><label class="text-xs text-slate-500">Año<input id="razStY" type="number" value="${st.per.year || currentYear}" class="block w-24 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800"></label>
+        <label class="text-xs text-slate-500">Meses del periodo (estado de resultados)<input id="razStM" type="number" min="1" max="12" value="${st.per.meses}" class="block w-24 border border-slate-300 rounded-lg px-2 py-1.5 text-sm text-slate-800"></label></div>
+        <div class="text-xs space-y-1 mb-3">${chk.filter(Boolean).map(c => `<p>${c}</p>`).join('')}</div>
+        <div class="max-h-72 overflow-y-auto border border-slate-200 rounded-lg"><table class="w-full text-xs"><thead class="bg-slate-50 text-slate-500"><tr><th class="text-left p-1.5">Cuenta</th><th class="text-left p-1.5">Estado</th><th class="text-left p-1.5">Grupo</th><th class="text-right p-1.5">Importe</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="flex gap-3 mt-4"><button onclick="razStmtApply()" class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-4 py-2">Aplicar al año</button><button onclick="byId('razPrev').classList.add('hidden')" class="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg px-4 py-2">Cancelar</button></div>`;
+      box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    function razStmtApply() {
+      const st = _razStmt; if (!st) return;
+      const y = String(Number(byId('razStY').value) || currentYear), m = Math.min(12, Math.max(1, Number(byId('razStM').value) || 12));
+      const cur = _raz[y] || {};
+      if (RAZ_BAL.concat(RAZ_RES).some(([k]) => Number(cur[k])) && !confirm(`El año ${y} ya tiene datos. ¿Reemplazarlos con los del archivo?`)) return;
+      const d = {}; const items = [...(st.B ? st.B.b : []), ...(st.E ? st.E.er : [])];
+      d.detalle = items.map(i => ({ l: i.l, g: i.g, v: i.v, s: i.s }));
+      if (st.E) d.meses = m;
+      d.fuente = 'Excel de estados financieros';
+      _raz[y] = d; razDetCalc(y);
+      byId('razYear').value = y; byId('razPrev').classList.add('hidden'); razBuild(); if (_ready) _queueSave();
+      showToast('Estados financieros aplicados: ' + items.length + ' cuentas.');
+    }
+    function razDetCalc(y) {
+      const d = _raz[y]; if (!d || !d.detalle) return;
+      [['b', RAZ_BAL], ['r', RAZ_RES]].forEach(([s, arr]) => {
+        if (!d.detalle.some(i => i.s === s)) return;
+        arr.forEach(([k]) => { d[k] = Math.round(d.detalle.filter(i => i.s === s && i.g === k).reduce((t, i) => t + (Number(i.v) || 0), 0) * 100) / 100; });
+      });
+    }
+    function razDetSet(idx, g) { const y = razYr(); _raz[y].detalle[idx].g = g; razDetCalc(y); razBuild(); if (_ready) _queueSave(); }
+    function razDetQuit() {
+      if (!confirm('Se quita el detalle de cuentas; los totales por grupo se conservan y quedan editables. ¿Continuar?')) return;
+      delete _raz[razYr()].detalle; razBuild(); if (_ready) _queueSave();
+    }
+    function razDetRender() {
+      const box = byId('razDet'), d = _raz[razYr()] || {}, det = d.detalle || [];
+      if (!det.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+      const f2 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const opts = (s, cur) => `<option value="">— No incluir —</option>` + (s === 'b' ? RAZ_BAL : RAZ_RES).map(([k, l]) => `<option value="${k}"${k === cur ? ' selected' : ''}>${l}</option>`).join('');
+      const sec = (s, t) => { const r = det.map((i, ix) => [i, ix]).filter(([i]) => i.s === s); return r.length ? `<tr class="bg-slate-50"><td colspan="3" class="p-2 font-semibold text-slate-700 text-xs">${t}</td></tr>` + r.map(([i, ix]) => `<tr class="border-t border-slate-100"><td class="p-1.5 text-slate-700">${verEsc(i.l)}</td><td class="p-1.5"><select onchange="razDetSet(${ix},this.value)" class="border border-slate-300 rounded px-1 py-1 text-xs text-slate-700">${opts(s, i.g)}</select></td><td class="p-1.5 text-right text-slate-800">${f2(i.v)}</td></tr>`).join('') : ''; };
+      box.classList.remove('hidden');
+      box.innerHTML = `<div class="flex items-center gap-3 mb-3"><div><h3 class="font-semibold text-slate-800">Detalle de cuentas</h3><p class="text-xs text-slate-500">${verEsc(d.fuente || '')}. Cambia el grupo de una cuenta si quieres clasificarla distinto; los totales y razones se recalculan.</p></div><button onclick="razDetQuit()" class="ml-auto text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg px-3 py-2">Quitar detalle</button></div>
+        <div class="max-h-96 overflow-y-auto border border-slate-200 rounded-lg"><table class="w-full text-xs"><thead class="bg-slate-50 text-slate-500"><tr><th class="text-left p-1.5">Cuenta</th><th class="text-left p-1.5">Grupo</th><th class="text-right p-1.5">Importe</th></tr></thead><tbody>${sec('b', 'Estado de posición financiera (Balance)')}${sec('r', 'Estado de resultados' + (d.meses ? ' · ' + d.meses + ' meses' : ''))}</tbody></table></div>`;
+    }
     async function razLoadFile(inp) {
       const f = inp.files[0]; inp.value = ''; if (!f) return;
       try {
         const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' }), out = {};
+        const st = razStmtParse(wb); if (st) { razStmtPreview(st); return; }
         wb.SheetNames.forEach(n => razParseRows(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, raw: true }), Number(razYr()), out));
         razPreview(out);
       } catch (e) { showToast('No se pudo leer el archivo. Revisa que sea un Excel válido.'); }
@@ -2679,6 +2831,42 @@
       const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [{ wch: 34 }, { wch: 16 }, { wch: 16 }];
       const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Estados financieros');
       XLSX.writeFile(wb, 'plantilla-razones-financieras.xlsx');
+    }
+
+    function razTplRows(y) {
+      const H = (t) => ({ h: t }), I = (t) => ({ l: t }), O = () => ({ l: '(otra cuenta)' });
+      const act = [H('Circulante:'), I('Bancos'), I('Inversiones'), I('Clientes'), I('Deudores diversos'), I('IVA e impuestos a favor'), I('Inventarios'), I('Anticipos a proveedores'), O(), O(),
+        H('Fijo:'), I('Terrenos y edificios'), I('Maquinaria y equipo'), I('Equipo de transporte'), I('Mobiliario y equipo de oficina'), I('Equipo de cómputo'), I('Herramientas'), I('Depreciación acumulada (captura en positivo)'), O(),
+        H('Diferido y otros:'), I('Depósitos en garantía'), I('Gastos por amortizar'), O()];
+      const pas = [H('A corto plazo:'), I('Proveedores'), I('Documentos por pagar'), I('Préstamos bancarios'), I('Acreedores diversos'), I('Anticipos de clientes'), I('IVA por pagar'), I('Impuestos y provisiones por pagar'), I('Sueldos por pagar'), O(), O(),
+        H('A largo plazo:'), I('Préstamos bancarios (largo plazo)'), I('Arrendamientos y otros (largo plazo)'), O(),
+        H('Capital contable:'), I('Capital social'), I('Resultado de ejercicios anteriores'), I('Resultado del ejercicio'), I('Aportaciones y otros'), O()];
+      const n = Math.max(act.length, pas.length), r0 = 5;
+      const bal = [['NOMBRE DE LA EMPRESA'], ['ESTADO DE POSICIÓN FINANCIERA'], ['AL 31 DE DICIEMBRE DE ' + y], [], ['ACTIVO', null, null, 'PASIVO Y CAPITAL']];
+      for (let i = 0; i < n; i++) {
+        const a = act[i] || {}, p = pas[i] || {}, row = [];
+        row[0] = a.h || a.l || null; row[3] = p.h || p.l || null; bal.push(row);
+      }
+      bal.push([]); const last = r0 + n;
+      bal.push(['Total Activo:', { t: 'n', v: 0, f: `SUM(B${r0 + 1}:B${last})` }, null, 'Total Pasivo y Capital', { t: 'n', v: 0, f: `SUM(E${r0 + 1}:E${last})` }]);
+      const er = [['NOMBRE DE LA EMPRESA'], ['ESTADO DE RESULTADOS'], ['01 DE ENERO AL 31 DE DICIEMBRE DE ' + y], [], ['CONCEPTO', null, 'IMPORTE'], ['Ingresos:'],
+        ['Ingresos por servicios / ventas'], ['Ingresos por servicios / ventas (otro)'], ['Devoluciones y bonificaciones (captura en positivo)'],
+        ['Total Ingresos', null, { t: 'n', v: 0, f: 'SUM(C7:C8)-C9' }], ['Costos y gastos:'],
+        ['Costo de obra o de ventas'], ['Materiales'], ['Mano de obra'], ['Subcontratos'], ['Gastos de administración'], ['Gastos de venta'], ['Gastos financieros (intereses)'], ['Impuestos (ISR / PTU)'], ['(otra cuenta)'], ['(otra cuenta)'],
+        ['Total de egresos', null, { t: 'n', v: 0, f: 'SUM(C12:C21)' }], ['Resultado del ejercicio', null, { t: 'n', v: 0, f: 'C10-C22' }]];
+      const ins = [['Cómo llenar esta plantilla'], ['1. Cambia "NOMBRE DE LA EMPRESA" y la fecha de cada hoja (por ejemplo: AL 30 DE SEPTIEMBRE DE 2026). El periodo del Estado de Resultados se lee de su fecha: 01 DE ENERO AL 30 DE SEPTIEMBRE DE 2026 = 9 meses.'],
+        ['2. Escribe el importe de cada cuenta en la columna de importes. Las cuentas que no te apliquen déjalas en blanco o en cero.'],
+        ['3. Si tienes cuentas que no están en la lista, usa las filas "(otra cuenta)" o inserta filas dentro de su sección y escribe el nombre real. Deja los encabezados de sección (Circulante, Fijo, A corto plazo, A largo plazo, Capital contable) sin cambiar.'],
+        ['4. Todos los importes en positivo, también la depreciación acumulada y las devoluciones. Los totales se calculan solos.'],
+        ['5. Guarda el archivo y súbelo en Razones Financieras con "Subir Excel". Verás una vista previa y podrás cambiar el grupo de cualquier cuenta.']];
+      return { bal, er, ins };
+    }
+    function razTemplate2() {
+      const t = razTplRows(razYr()), wb = XLSX.utils.book_new();
+      [['INSTRUCCIONES', t.ins, [{ wch: 130 }]], ['POS FIN', t.bal, [{ wch: 44 }, { wch: 16 }, { wch: 4 }, { wch: 40 }, { wch: 16 }]], ['EDO RESUL', t.er, [{ wch: 52 }, { wch: 4 }, { wch: 18 }]]].forEach(([n, a, w]) => {
+        const ws = XLSX.utils.aoa_to_sheet(a); ws['!cols'] = w; XLSX.utils.book_append_sheet(wb, ws, n);
+      });
+      XLSX.writeFile(wb, 'plantilla-estados-financieros-por-cuentas.xlsx');
     }
 
     // ===== Excel presupuesto operativo =====
