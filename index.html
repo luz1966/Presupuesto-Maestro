@@ -519,12 +519,12 @@
         </div>
         <div class="flex flex-wrap items-center gap-3 text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200">
           <div>
-            <label class="block text-[10px] uppercase font-bold text-slate-500">Gastos Adm. Central (%)</label>
-            <input type="number" id="pnlGastoAdmPct" value="4.0" step="0.5" onchange="renderEstadoResultados()" class="w-20 border border-slate-300 rounded px-2 py-1 font-mono text-right text-xs">
+            <label class="block text-[10px] uppercase font-bold text-slate-500">Gastos Adm. adicionales (%)</label>
+            <input type="number" id="pnlGastoAdmPct" value="0" title="Solo si tu presupuesto NO incluye gastos administrativos en indirectos" step="0.5" onchange="renderEstadoResultados()" class="w-20 border border-slate-300 rounded px-2 py-1 font-mono text-right text-xs">
           </div>
           <div>
-            <label class="block text-[10px] uppercase font-bold text-slate-500">Costo Financiero (%)</label>
-            <input type="number" id="pnlCostoFinPct" value="1.5" step="0.1" onchange="renderEstadoResultados()" class="w-20 border border-slate-300 rounded px-2 py-1 font-mono text-right text-xs">
+            <label class="block text-[10px] uppercase font-bold text-slate-500">Factoraje adicional (%)</label>
+            <input type="number" id="pnlCostoFinPct" value="0" title="Solo si quieres estimar un costo de factoraje además de los gastos financieros del presupuesto" step="0.1" onchange="renderEstadoResultados()" class="w-20 border border-slate-300 rounded px-2 py-1 font-mono text-right text-xs">
           </div>
           <div>
             <label class="block text-[10px] uppercase font-bold text-slate-500">Tasa ISR / PTU (%)</label>
@@ -1440,9 +1440,8 @@
       tbody.innerHTML = '';
 
       const totals = getTotals();
-      const pctAdm = (parseFloat(document.getElementById('pnlGastoAdmPct')?.value) || 4.0) / 100;
-      const pctFin = (parseFloat(document.getElementById('pnlCostoFinPct')?.value) || 1.5) / 100;
-      const pctIsr = (parseFloat(document.getElementById('pnlIsrPct')?.value) || 30.0) / 100;
+      const pctOf = (id, def) => { const v = parseFloat(document.getElementById(id)?.value); return (isNaN(v) ? def : v) / 100; };
+      const pctAdm = pctOf('pnlGastoAdmPct', 0), pctFin = pctOf('pnlCostoFinPct', 0), pctIsr = pctOf('pnlIsrPct', 30);
 
       // Extract specific cost types
       const sumByType = (tipo, field) => partidas.filter(p => p.tipo === tipo).reduce((acc, p) => acc + ((p[field === 'ppto' ? 'cantPpto' : 'cantReal'] || 0) * (p[field === 'ppto' ? 'puPpto' : 'puReal'] || 0)), 0);
@@ -1455,8 +1454,12 @@
       const eqReal  = sumByType('Maquinaria', 'real');
       const subPpto = sumByType('Subcontratos', 'ppto');
       const subReal = sumByType('Subcontratos', 'real');
-      const indPpto = sumByType('Indirectos', 'ppto');
-      const indReal = sumByType('Indirectos', 'real');
+      // Los indirectos se separan por categoría del presupuesto operativo: financieros, imprevistos y comercialización tienen su propio renglón
+      const sumCat = (cats, field) => partidas.filter(p => p.tipo === 'Indirectos' && cats.includes(p.cat || 'indirectos')).reduce((acc, p) => acc + ((p[field === 'ppto' ? 'cantPpto' : 'cantReal'] || 0) * (p[field === 'ppto' ? 'puPpto' : 'puReal'] || 0)), 0);
+      const indPpto = sumCat(['indirectos'], 'ppto'), indReal = sumCat(['indirectos'], 'real');
+      const impPpto = sumCat(['imprevistos'], 'ppto'), impReal = sumCat(['imprevistos'], 'real');
+      const comPpto = sumCat(['comercializacion'], 'ppto'), comReal = sumCat(['comercializacion'], 'real');
+      const gfPpto = sumCat(['financieros'], 'ppto'), gfReal = sumCat(['financieros'], 'real');
 
       const costoDirectoPpto = matPpto + moPpto + eqPpto + subPpto;
       const costoDirectoReal = matReal + moReal + eqReal + subReal;
@@ -1467,11 +1470,11 @@
       const admCentralPpto = totals.totalIngresoPpto * pctAdm;
       const admCentralReal = totals.totalIngresoReal * pctAdm;
 
-      const ebitdaPpto = utilBrutaPpto - indPpto - admCentralPpto;
-      const ebitdaReal = utilBrutaReal - indReal - admCentralReal;
+      const ebitdaPpto = utilBrutaPpto - indPpto - impPpto - comPpto - admCentralPpto;
+      const ebitdaReal = utilBrutaReal - indReal - impReal - comReal - admCentralReal;
 
-      const costoFinPpto = totals.totalIngresoPpto * pctFin;
-      const costoFinReal = totals.totalIngresoReal * pctFin;
+      const costoFinPpto = gfPpto + totals.totalIngresoPpto * pctFin;
+      const costoFinReal = gfReal + totals.totalIngresoReal * pctFin;
 
       const uaiPpto = ebitdaPpto - costoFinPpto;
       const uaiReal = ebitdaReal - costoFinReal;
@@ -1512,9 +1515,11 @@
         { name: '(=) Costo Directo de Ventas (COGS de Obra)', ppto: costoDirectoPpto, real: costoDirectoReal, isSubtotal: true, isCost: true },
         { name: '(=) UTILIDAD BRUTA OPERATIVA', ppto: utilBrutaPpto, real: utilBrutaReal, isHighlight: true, isProfit: true },
         { name: '  (-) Costos Indirectos de Campo y Supervisión', ppto: indPpto, real: indReal, isCost: true },
-        { name: `  (-) Gastos de Adm. Central y Corporativo (${(pctAdm * 100).toFixed(1)}%)`, ppto: admCentralPpto, real: admCentralReal, isCost: true },
+        ...((impPpto || impReal) ? [{ name: '  (-) Imprevistos y Contingencias', ppto: impPpto, real: impReal, isCost: true }] : []),
+        ...((comPpto || comReal) ? [{ name: '  (-) Comercialización y Ventas', ppto: comPpto, real: comReal, isCost: true }] : []),
+        ...(pctAdm > 0 ? [{ name: `  (-) Gastos de Adm. Central adicionales (${(pctAdm * 100).toFixed(1)}% de ingresos)`, ppto: admCentralPpto, real: admCentralReal, isCost: true }] : []),
         { name: '(=) EBITDA DE OBRA (Flujo Operativo Bruto)', ppto: ebitdaPpto, real: ebitdaReal, isHighlight: true, isProfit: true },
-        { name: `  (-) Costo Integral de Financiamiento / Factoraje (${(pctFin * 100).toFixed(1)}%)`, ppto: costoFinPpto, real: costoFinReal, isCost: true },
+        { name: pctFin > 0 ? `  (-) Gastos financieros + factoraje (${(pctFin * 100).toFixed(1)}% de ingresos)` : '  (-) Gastos Financieros', ppto: costoFinPpto, real: costoFinReal, isCost: true },
         { name: '(=) Utilidad Antes de Impuestos (UAI)', ppto: uaiPpto, real: uaiReal, isSubtotal: true, isProfit: true },
         { name: `  (-) Provisión ISR y PTU Proyectada (${(pctIsr * 100).toFixed(0)}%)`, ppto: isrPpto, real: isrReal, isCost: true },
         { name: '(=) UTILIDAD NETA DEL CONTRATO', ppto: utilNetaPpto, real: utilNetaReal, isGrandTotal: true, isProfit: true }
